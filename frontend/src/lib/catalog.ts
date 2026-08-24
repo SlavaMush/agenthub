@@ -7,6 +7,9 @@ export type MemoryListing = {
   priceUSDC: string;
   cid: string;
   cidHash: string;
+  uri?: string;
+  title?: string;
+  brief?: string;
   active: boolean;
   sold: boolean;
   listedAt: number;
@@ -21,6 +24,9 @@ export type ServiceListing = {
   priceUSDC: string;
   deadline: number;
   uri: string;
+  title?: string;
+  brief?: string;
+  category?: string;
   cid: string;
   status: string;
   listedAt: number;
@@ -49,22 +55,61 @@ export type CatalogStats = {
   paused: boolean;
 };
 
+export type CatalogQuery = {
+  seller?: string;
+  buyer?: string;
+  status?: string;
+  active?: boolean;
+  sold?: boolean;
+  verified?: boolean;
+  limit?: number;
+  offset?: number;
+};
+
 async function getJson<T>(path: string): Promise<T> {
   const res = await fetch(`${INDEXER_URL}${path}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Indexer ${path} failed (${res.status})`);
   return res.json() as Promise<T>;
 }
 
-export function fetchMemory() {
-  return getJson<{ modules: MemoryListing[]; total: number }>("/memory");
+function queryString(query?: CatalogQuery) {
+  if (!query) return "";
+  const params = new URLSearchParams();
+  if (query.seller) params.set("seller", query.seller);
+  if (query.buyer) params.set("buyer", query.buyer);
+  if (query.status) params.set("status", query.status);
+  if (query.active === true) params.set("active", "true");
+  if (query.sold === true) params.set("sold", "true");
+  if (query.sold === false) params.set("sold", "false");
+  if (query.verified === true) params.set("verified", "true");
+  if (query.limit != null) params.set("limit", String(query.limit));
+  if (query.offset != null) params.set("offset", String(query.offset));
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : "";
 }
 
-export function fetchServices() {
-  return getJson<{ listings: ServiceListing[]; total: number }>("/services");
+export function fetchMemory(query?: CatalogQuery) {
+  return getJson<{ modules: MemoryListing[]; total: number }>(`/memory${queryString(query)}`);
 }
 
-export function fetchAgents() {
-  return getJson<{ agents: CatalogAgent[]; total: number }>("/agents");
+export function fetchMemoryById(id: string | number) {
+  return getJson<MemoryListing>(`/memory/${id}`);
+}
+
+export function fetchServices(query?: CatalogQuery) {
+  return getJson<{ listings: ServiceListing[]; total: number }>(`/services${queryString(query)}`);
+}
+
+export function fetchServiceById(id: string | number) {
+  return getJson<ServiceListing>(`/services/${id}`);
+}
+
+export function fetchAgents(query?: CatalogQuery) {
+  return getJson<{ agents: CatalogAgent[]; total: number }>(`/agents${queryString(query)}`);
+}
+
+export function fetchAgentByAddress(address: string) {
+  return getJson<CatalogAgent>(`/agents/${address}`);
 }
 
 export function fetchStats() {
