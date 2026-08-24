@@ -10,6 +10,7 @@ import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
 import { ConnectToAct, PayButton, UsdcBalance } from "@/components/ConnectToAct";
+import { IdentityGate } from "@/components/IdentityGate";
 import { buildMemoryUri } from "@/lib/uris";
 import {
   Badge,
@@ -196,7 +197,8 @@ export function MemoryTab() {
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title="List memory" subtitle="Requires ERC-8004. Price in USDC. 10% fee on sale.">
-        <form onSubmit={onList} className="space-y-4">
+        <IdentityGate>
+<form onSubmit={onList} className="space-y-4">
           <Field label="CID" hint="IPFS CID of the Sibyl module. This is what the buyer receives as the pointer.">
             <input name="cid" required placeholder="bafy…" className={inputClass()} />
           </Field>
@@ -217,6 +219,7 @@ export function MemoryTab() {
             <ConnectToAct label="Connect to list" className="w-full" />
           )}
         </form>
+        </IdentityGate>
       </Modal>
 
       <Modal open={Boolean(detail)} onClose={() => setDetail(null)} title={detail ? listingTitle(detail.cid) : ""} subtitle={detail ? `Token #${detail.id}` : ""}>

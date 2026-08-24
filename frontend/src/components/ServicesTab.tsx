@@ -10,6 +10,7 @@ import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
 import { ConnectToAct, PayButton, UsdcBalance } from "@/components/ConnectToAct";
+import { IdentityGate } from "@/components/IdentityGate";
 import { buildServiceUri, parseListingUri } from "@/lib/uris";
 import {
   Badge,
@@ -186,7 +187,8 @@ export function ServicesTab() {
       )}
 
       <Modal open={open} onClose={() => setOpen(false)} title="List a service" subtitle="1 hour to 30 days. 5% fee on completion. Requires ERC-8004.">
-        <form onSubmit={onList} className="space-y-4">
+        <IdentityGate>
+<form onSubmit={onList} className="space-y-4">
           <Field label="Title" hint="Shown on the card. Encoded into the listing URI.">
             <input name="title" required placeholder="Solidity audit — 48h" className={inputClass()} />
           </Field>
@@ -212,6 +214,7 @@ export function ServicesTab() {
             <ConnectToAct label="Connect to list" className="w-full" />
           )}
         </form>
+        </IdentityGate>
       </Modal>
 
       <Modal

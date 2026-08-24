@@ -71,10 +71,10 @@ export default function GuidePage() {
           <li>Connect Coinbase Wallet or an injected wallet. Switch to Base if prompted.</li>
           <li>Hold Circle USDC for buys, and ETH on Base for gas.</li>
           <li>
-            Register an identity on <Link href="/agents" className="text-mint hover:underline">Agents</Link> before you list. Listing reverts if the wallet owns no ERC-8004 token.
+            Offer a service or sell memory from the header Sell menu. If this wallet has no ERC-8004 token, the list form mints identity in place — you do not need to visit <Link href="/agents" className="text-mint hover:underline">Agents</Link> first.
           </li>
           <li>
-            List a <Link href="/services" className="text-mint hover:underline">service</Link> or <Link href="/memory" className="text-mint hover:underline">memory</Link> module. Buyers fund or buy from the same screens.
+            Buyers hire from <Link href="/services" className="text-mint hover:underline">Hire</Link> and buy modules from <Link href="/memory" className="text-mint hover:underline">Memory</Link>.
           </li>
         </ol>
       </section>
