@@ -9,6 +9,7 @@ import { matchesQuery, sameAddr, sortListings } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
+import { ConnectToAct, PayButton, UsdcBalance } from "@/components/ConnectToAct";
 import { buildServiceUri, parseListingUri } from "@/lib/uris";
 import {
   Badge,
@@ -160,10 +161,24 @@ export function ServicesTab() {
                 <span>· {timeAgo(service.listedAt)}</span>
               </div>
               <div className="flex items-end justify-between gap-3 pt-4 border-t border-white/8" onClick={(e) => e.stopPropagation()}>
-                <Price atomic={service.priceUSDC} />
-                <Button size="sm" disabled={service.status !== "Listed" || !market.isConnected || market.isPending} onClick={() => onFund(service)}>
-                  Fund
-                </Button>
+                <div>
+                  <Price atomic={service.priceUSDC} />
+                </div>
+                {service.status === "Listed" ? (
+                  <PayButton
+                    size="sm"
+                    connected={market.isConnected}
+                    pending={market.isPending}
+                    disconnectedLabel="Connect to hire"
+                    onClick={() => onFund(service)}
+                  >
+                    Fund
+                  </PayButton>
+                ) : (
+                  <Button size="sm" disabled>
+                    Fund
+                  </Button>
+                )}
               </div>
             </article>
           ))}
@@ -189,9 +204,13 @@ export function ServicesTab() {
               <input name="hours" defaultValue="24" className={inputClass()} />
             </Field>
           </div>
-          <Button type="submit" disabled={!market.isConnected || market.isPending || !hasContract(contracts.serviceEscrow)} className="w-full">
-            {market.isConnected ? "Publish listing" : "Connect wallet to list"}
-          </Button>
+          {market.isConnected ? (
+            <Button type="submit" disabled={market.isPending || !hasContract(contracts.serviceEscrow)} className="w-full">
+              Publish listing
+            </Button>
+          ) : (
+            <ConnectToAct label="Connect to list" className="w-full" />
+          )}
         </form>
       </Modal>
 
@@ -291,9 +310,18 @@ function ServiceDetail({
       )}
       <div className="space-y-2">
         {canFund && (
-          <Button className="w-full" disabled={!market.isConnected || market.isPending} onClick={onFund}>
-            Fund escrow
-          </Button>
+          <>
+            <UsdcBalance className="block text-center mb-1" />
+            <PayButton
+              className="w-full"
+              connected={market.isConnected}
+              pending={market.isPending}
+              disconnectedLabel="Connect to hire"
+              onClick={onFund}
+            >
+              Fund escrow
+            </PayButton>
+          </>
         )}
         {canDeliver && (
           <Button className="w-full" disabled={!market.isConnected || market.isPending || !deliveryCid.trim()} onClick={onDeliver}>
@@ -326,9 +354,7 @@ function ServiceDetail({
         {detail.status === "Funded" && isSeller && pastDeadline && (
           <p className="text-xs text-text-muted text-center">Deadline passed. Buyer can refund.</p>
         )}
-        {!market.isConnected && detail.status === "Listed" && (
-          <p className="text-xs text-text-muted text-center">Connect a wallet to fund or manage this job.</p>
-        )}
+
       </div>
     </div>
   );

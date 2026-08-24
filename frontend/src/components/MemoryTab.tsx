@@ -9,6 +9,7 @@ import { matchesQuery, sameAddr, sortListings } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
+import { ConnectToAct, PayButton, UsdcBalance } from "@/components/ConnectToAct";
 import { buildMemoryUri } from "@/lib/uris";
 import {
   Badge,
@@ -173,9 +174,21 @@ export function MemoryTab() {
               </div>
               <div className="flex items-end justify-between gap-3 pt-4 border-t border-white/8" onClick={(e) => e.stopPropagation()}>
                 {module.sold ? <span className="font-mono text-xl text-text-muted">Sold</span> : <Price atomic={module.priceUSDC} />}
-                <Button size="sm" disabled={module.sold || !module.active || !market.isConnected || market.isPending} onClick={() => onBuy(module)}>
-                  Buy
-                </Button>
+                {!module.sold && module.active ? (
+                  <PayButton
+                    size="sm"
+                    connected={market.isConnected}
+                    pending={market.isPending}
+                    disconnectedLabel="Connect to buy"
+                    onClick={() => onBuy(module)}
+                  >
+                    Buy
+                  </PayButton>
+                ) : (
+                  <Button size="sm" disabled>
+                    Buy
+                  </Button>
+                )}
               </div>
             </article>
           ))}
@@ -196,9 +209,13 @@ export function MemoryTab() {
           <Field label="Price USDC">
             <input name="price" required placeholder="80" className={inputClass()} />
           </Field>
-          <Button type="submit" disabled={!market.isConnected || market.isPending || !hasContract(contracts.memoryMarket)} className="w-full">
-            {market.isConnected ? "Publish module" : "Connect wallet to list"}
-          </Button>
+          {market.isConnected ? (
+            <Button type="submit" disabled={market.isPending || !hasContract(contracts.memoryMarket)} className="w-full">
+              Publish module
+            </Button>
+          ) : (
+            <ConnectToAct label="Connect to list" className="w-full" />
+          )}
         </form>
       </Modal>
 
@@ -224,9 +241,20 @@ export function MemoryTab() {
                 Delist
               </Button>
             )}
-            <Button className="w-full" disabled={detail.sold || !detail.active || !market.isConnected || market.isPending} onClick={() => onBuy(detail)}>
-              Buy with USDC
-            </Button>
+            {!detail.sold && detail.active && (
+              <>
+                <UsdcBalance className="block text-center" />
+                <PayButton
+                  className="w-full"
+                  connected={market.isConnected}
+                  pending={market.isPending}
+                  disconnectedLabel="Connect to buy"
+                  onClick={() => onBuy(detail)}
+                >
+                  Buy with USDC
+                </PayButton>
+              </>
+            )}
           </div>
         )}
       </Modal>

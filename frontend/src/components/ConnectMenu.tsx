@@ -6,6 +6,7 @@ import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi";
 import { agentHubAbi } from "@agenthub/config";
 import { APP_CHAIN_ID, chain as appChain, contracts, hasContract } from "@/lib/app-config";
 import { appViemChain } from "@/lib/chains";
+import { UsdcBalance } from "@/components/ConnectToAct";
 
 export function ConnectMenu() {
   const { address, isConnected } = useAccount();
@@ -34,6 +35,11 @@ export function ConnectMenu() {
         >
           Switch network
         </button>
+      )}
+      {isConnected && (
+        <span className="hidden sm:inline-flex h-9 items-center px-3 rounded-full border border-white/10 bg-white/[0.03]">
+          <UsdcBalance />
+        </span>
       )}
       {isConnected && isAgent === true && (
         <span className="hidden md:inline-flex h-9 items-center px-3 rounded-full bg-mint/10 text-mint text-[11px] font-semibold border border-mint/25">
