@@ -1,134 +1,96 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import "forge-std/console.sol";
-import "./Interfaces.sol";
+import {Ownable} from "@openzeppelin/contracts/access/Ownable.sol";
+import {IERC8004Identity} from "./interfaces/IERC8004Identity.sol";
 
-contract AgentHub is Ownable, ReentrancyGuard {
-    using SafeERC20 for IERC20;
+/// @notice Protocol registry: pause, fees, treasury, ERC-8004, USDC. Does not custody funds.
+contract AgentHub is Ownable {
+    uint16 public constant MAX_FEE_BPS = 2000;
+
     address public immutable USDC;
-    address public immutable SIBYL_STAKING;
-    address public MEMORY_NFT;
-    address public SERVICE_LISTING;
-    address public REPUTATION_ORACLE;
-    address public DISPUTE;
 
-    // Fee configuration (basis points)
-    uint256 public MEMORY_FEE_BPS = 1000;  // 10%
-    uint256 public SERVICE_FEE_BPS = 500;  // 5%
+    address public identityRegistry;
+    address public treasury;
+    address public memoryMarket;
+    address public serviceEscrow;
 
-    // Protocol state
+    uint16 public memoryFeeBps;
+    uint16 public serviceFeeBps;
     bool public paused;
+
     uint256 public totalVolumeUSDC;
-    uint256 public totalFeesCollectedUSDC;
+    uint256 public totalFeesUSDC;
 
-    event MemoryFeeCollected(uint256 tokenId, uint256 amountUSDC, uint256 feeUSDC);
-    event ServiceFeeCollected(uint256 listingId, uint256 amountUSDC, uint256 feeUSDC);
-    event FeesUpdated(uint256 memoryFeeBps, uint256 serviceFeeBps);
-    event ProtocolPaused(bool paused);
-    event VolumeUpdated(uint256 totalVolume, uint256 totalFees);
+    error ZeroAddress();
+    error FeeTooHigh();
+    error NotMarket();
+    error UnsupportedChain();
 
-    constructor(
-        address _usdc,
-        address _sibylStaking,
-        address _memoryNFT,
-        address _serviceListing,
-        address _reputationOracle,
-        address _dispute
-    ) Ownable(msg.sender) {
-        USDC = _usdc;
-        SIBYL_STAKING = _sibylStaking;
-        MEMORY_NFT = _memoryNFT;
-        SERVICE_LISTING = _serviceListing;
-        REPUTATION_ORACLE = _reputationOracle;
-        DISPUTE = _dispute;
-    }
+    event IdentityRegistryUpdated(address indexed registry);
+    event TreasuryUpdated(address indexed treasury);
+    event MarketsUpdated(address indexed memoryMarket, address indexed serviceEscrow);
+    event FeesUpdated(uint16 memoryFeeBps, uint16 serviceFeeBps);
+    event PauseSet(bool paused);
+    event SettlementNoted(address indexed market, uint256 volumeUSDC, uint256 feeUSDC);
 
-    // ==================== FEE COLLECTION (CALLED BY MARKETPLACE CONTRACTS) ====================
-
-    function collectMemoryFee(uint256 tokenId, uint256 priceUSDC) external nonReentrant {
-        require(msg.sender == MEMORY_NFT, "ONLY_MEMORY_NFT");
-        require(!paused, "PAUSED");
-
-        uint256 fee = (priceUSDC * MEMORY_FEE_BPS) / 10000;
-        require(fee > 0, "ZERO_FEE");
-
-        IERC20(USDC).safeTransferFrom(MEMORY_NFT, SIBYL_STAKING, fee);
-
-        totalVolumeUSDC += priceUSDC;
-        totalFeesCollectedUSDC += fee;
-
-        emit MemoryFeeCollected(tokenId, priceUSDC, fee);
-        emit VolumeUpdated(totalVolumeUSDC, totalFeesCollectedUSDC);
-    }
-
-    function collectServiceFee(uint256 listingId, uint256 amountUSDC) external nonReentrant {
-        require(msg.sender == SERVICE_LISTING, "ONLY_SERVICE_LISTING");
-        require(!paused, "PAUSED");
-
-        uint256 fee = (amountUSDC * SERVICE_FEE_BPS) / 10000;
-        require(fee > 0, "ZERO_FEE");
-
-        IERC20(USDC).safeTransferFrom(SERVICE_LISTING, SIBYL_STAKING, fee);
-
-        totalVolumeUSDC += amountUSDC;
-        totalFeesCollectedUSDC += fee;
-
-        emit ServiceFeeCollected(listingId, amountUSDC, fee);
-        emit VolumeUpdated(totalVolumeUSDC, totalFeesCollectedUSDC);
-    }
-
-    // ==================== ADMIN ====================
-
-    function updateFees(uint256 memoryFeeBps, uint256 serviceFeeBps) external onlyOwner {
-        require(memoryFeeBps <= 2000, "MEMORY_FEE_TOO_HIGH"); // Max 20%
-        require(serviceFeeBps <= 1000, "SERVICE_FEE_TOO_HIGH"); // Max 10%
-
-        MEMORY_FEE_BPS = memoryFeeBps;
-        SERVICE_FEE_BPS = serviceFeeBps;
-
-        emit FeesUpdated(memoryFeeBps, serviceFeeBps);
-    }
-
-    function setPaused(bool _paused) external onlyOwner {
-        paused = _paused;
-        emit ProtocolPaused(_paused);
-    }
-
-    function updateContracts(
-        address _memoryNFT,
-        address _serviceListing,
-        address _reputationOracle,
-        address _dispute
-    ) external onlyOwner {
-        if (_memoryNFT != address(0)) MEMORY_NFT = _memoryNFT;
-        if (_serviceListing != address(0)) SERVICE_LISTING = _serviceListing;
-        if (_reputationOracle != address(0)) REPUTATION_ORACLE = _reputationOracle;
-        if (_dispute != address(0)) DISPUTE = _dispute;
-    }
-
-    // ==================== EMERGENCY ====================
-
-    function emergencyWithdraw(address token) external onlyOwner {
-        uint256 balance = IERC20(token).balanceOf(address(this));
-        if (balance > 0) {
-            IERC20(token).safeTransfer(owner(), balance);
+    constructor(address usdc, address identityRegistry_, address treasury_, uint16 memoryFeeBps_, uint16 serviceFeeBps_)
+        Ownable(msg.sender)
+    {
+        if (block.chainid != 8453 && block.chainid != 84532 && block.chainid != 31337) {
+            revert UnsupportedChain();
         }
+        if (usdc == address(0) || identityRegistry_ == address(0) || treasury_ == address(0)) {
+            revert ZeroAddress();
+        }
+        if (memoryFeeBps_ > MAX_FEE_BPS || serviceFeeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
+
+        USDC = usdc;
+        identityRegistry = identityRegistry_;
+        treasury = treasury_;
+        memoryFeeBps = memoryFeeBps_;
+        serviceFeeBps = serviceFeeBps_;
     }
 
-    // ==================== VIEWS ====================
+    function isAgent(address account) public view returns (bool) {
+        return IERC8004Identity(identityRegistry).balanceOf(account) > 0;
+    }
 
-    function getProtocolStats() external view returns (
-        uint256 totalVolume,
-        uint256 totalFees,
-        uint256 memoryFeeBps,
-        uint256 serviceFeeBps,
-        bool isPaused
-    ) {
-        return (totalVolumeUSDC, totalFeesCollectedUSDC, MEMORY_FEE_BPS, SERVICE_FEE_BPS, paused);
+    function setIdentityRegistry(address registry) external onlyOwner {
+        if (registry == address(0)) revert ZeroAddress();
+        identityRegistry = registry;
+        emit IdentityRegistryUpdated(registry);
+    }
+
+    function setTreasury(address treasury_) external onlyOwner {
+        if (treasury_ == address(0)) revert ZeroAddress();
+        treasury = treasury_;
+        emit TreasuryUpdated(treasury_);
+    }
+
+    function setMarkets(address memoryMarket_, address serviceEscrow_) external onlyOwner {
+        if (memoryMarket_ == address(0) || serviceEscrow_ == address(0)) revert ZeroAddress();
+        memoryMarket = memoryMarket_;
+        serviceEscrow = serviceEscrow_;
+        emit MarketsUpdated(memoryMarket_, serviceEscrow_);
+    }
+
+    function setFees(uint16 memoryFeeBps_, uint16 serviceFeeBps_) external onlyOwner {
+        if (memoryFeeBps_ > MAX_FEE_BPS || serviceFeeBps_ > MAX_FEE_BPS) revert FeeTooHigh();
+        memoryFeeBps = memoryFeeBps_;
+        serviceFeeBps = serviceFeeBps_;
+        emit FeesUpdated(memoryFeeBps_, serviceFeeBps_);
+    }
+
+    function setPaused(bool paused_) external onlyOwner {
+        paused = paused_;
+        emit PauseSet(paused_);
+    }
+
+    function noteSettlement(uint256 volumeUSDC, uint256 feeUSDC) external {
+        if (msg.sender != memoryMarket && msg.sender != serviceEscrow) revert NotMarket();
+        totalVolumeUSDC += volumeUSDC;
+        totalFeesUSDC += feeUSDC;
+        emit SettlementNoted(msg.sender, volumeUSDC, feeUSDC);
     }
 }

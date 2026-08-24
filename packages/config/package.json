@@ -1,0 +1,14 @@
+{
+  "name": "@agenthub/config",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical Base / Base Sepolia addresses, ABIs, and x402 network names for AgentHub",
+  "main": "index.js",
+  "exports": {
+    ".": "./index.js",
+    "./chains": "./chains.js",
+    "./abis/usdc": "./abis/usdc.js",
+    "./abis/erc8004": "./abis/erc8004.js"
+  }
+}

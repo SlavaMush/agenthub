@@ -1,66 +1,41 @@
-## Foundry
+# AgentHub contracts (v1 settlement)
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+Three contracts, USDC on Base, ERC-8004 identity gate.
 
-Foundry consists of:
+| Contract | Role |
+|---|---|
+| `AgentHub` | Pause, fees, treasury, ERC-8004 registry, USDC. Does not hold funds. |
+| `MemoryMarket` | Thin ERC-721. List CID + `tokenURI`. Buy with `transferFrom` or EIP-3009 `receiveWithAuthorization`. |
+| `ServiceEscrow` | Fund → deliver → confirm. Timeout refund, 3-day auto-release, owner resolve after freeze. |
 
-- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
-- **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
-- **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
-- **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+Old marketplace contracts live in `legacy/` (not compiled).
 
-## Documentation
+## Addresses (`packages/config`)
 
-https://book.getfoundry.sh/
+| | Base `8453` | Base Sepolia `84532` |
+|---|---|---|
+| USDC | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` | `0x036CbD53842c5426634e7929541eC2318f3dCF7e` |
+| ERC-8004 Identity | `0x8004A169FB4a3325136EB29fA0ceB6D2e539a432` | `0x8004A818BFB912233c491871b3d84c89A494BD9e` |
 
-## Usage
+## Test
 
-### Build
-
-```shell
-$ forge build
+```bash
+cd contracts
+forge test
 ```
 
-### Test
+## Deploy
 
-```shell
-$ forge test
+```bash
+# Base Sepolia
+forge script script/Deploy.s.sol:Deploy \
+  --rpc-url $BASE_SEPOLIA_RPC \
+  --broadcast --verify --chain 84532
+
+# Base mainnet
+forge script script/Deploy.s.sol:Deploy \
+  --rpc-url $BASE_MAINNET_RPC \
+  --broadcast --verify --chain 8453
 ```
 
-### Format
-
-```shell
-$ forge fmt
-```
-
-### Gas Snapshots
-
-```shell
-$ forge snapshot
-```
-
-### Anvil
-
-```shell
-$ anvil
-```
-
-### Deploy
-
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
-```
-
-### Cast
-
-```shell
-$ cast <subcommand>
-```
-
-### Help
-
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Optional env: `TREASURY` (defaults to the deployer).
