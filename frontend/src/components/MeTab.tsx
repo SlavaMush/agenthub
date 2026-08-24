@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState, type ReactNode } from "react";
+import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMemory, fetchServices, type MemoryListing, type ServiceListing } from "@/lib/catalog";
 import { listingTitle, shortAddr, txUrl } from "@/lib/app-config";
@@ -161,7 +162,7 @@ function JobRow({
             <Badge status={job.status} />
             <span className="font-mono text-[11px] text-text-muted">#{job.id}</span>
           </div>
-          <h3 className="font-semibold">{title}</h3>
+          <h3 className="font-semibold"><Link href={`/services/${job.id}`} className="hover:text-mint">{title}</Link></h3>
           <p className="text-xs text-text-muted font-mono mt-1">
             {role === "seller" ? `Buyer ${job.buyer ? shortAddr(job.buyer) : "—"}` : `Seller ${shortAddr(job.seller)}`}
           </p>
@@ -221,7 +222,7 @@ function MemoryRow({
           <Badge status={item.sold ? "sold" : "Listed"} />
           <span className="font-mono text-[11px] text-text-muted">#{item.id}</span>
         </div>
-        <h3 className="font-semibold">{title}</h3>
+        <h3 className="font-semibold"><Link href={`/memory/${item.id}`} className="hover:text-mint">{title}</Link></h3>
         <p className="font-mono text-xs text-text-muted break-all mt-1">{item.cid}</p>
         {owned && <p className="text-xs text-mint mt-2">You own this NFT. Resolve the CID in your stack.</p>}
       </div>

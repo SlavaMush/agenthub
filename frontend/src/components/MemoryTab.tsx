@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMemory, type MemoryListing } from "@/lib/catalog";
@@ -157,14 +158,13 @@ export function MemoryTab() {
           {modules.map((module) => (
             <article
               key={module.id}
-              className={`card rounded-3xl p-5 cursor-pointer ${module.sold ? "opacity-70" : ""}`}
-              onClick={() => setDetail(module)}
+              className={`card rounded-3xl p-5 ${module.sold ? "opacity-70" : ""}`}
             >
               <div className="flex items-center justify-between mb-4">
                 <Badge status={module.sold ? "sold" : "Listed"} />
                 <span className="font-mono text-[11px] text-text-muted">#{module.id}</span>
               </div>
-              <h3 className="text-lg font-semibold leading-snug mb-2 break-all">{listingTitle(module.cid)}</h3>
+              <h3 className="text-lg font-semibold leading-snug mb-2 break-all"><Link href={`/memory/${module.id}`} className="hover:text-mint">{module.title || listingTitle(module.cid)}</Link></h3>
               <div className="mb-4" onClick={(e) => e.stopPropagation()}>
                 <CopyButton value={module.cid} label="Copy CID" />
               </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchServices, type ServiceListing } from "@/lib/catalog";
@@ -150,12 +151,12 @@ export function ServicesTab() {
       {listings.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {listings.map((service) => (
-            <article key={service.id} className="card rounded-3xl p-5 cursor-pointer" onClick={() => setDetail(service)}>
+            <article key={service.id} className="card rounded-3xl p-5">
               <div className="flex items-center justify-between mb-4">
                 <Badge status={service.status} />
                 <span className="font-mono text-[11px] text-text-muted">#{service.id}</span>
               </div>
-              <h3 className="text-lg font-semibold leading-snug mb-4 break-words">{listingTitle(service.uri)}</h3>
+              <h3 className="text-lg font-semibold leading-snug mb-4 break-words"><Link href={`/services/${service.id}`} className="hover:text-mint">{service.title || listingTitle(service.uri)}</Link></h3>
               <div className="flex items-center gap-2 text-sm text-text-muted mb-5">
                 <Identicon address={service.seller} size={22} />
                 <span className="font-mono">{shortAddr(service.seller)}</span>
