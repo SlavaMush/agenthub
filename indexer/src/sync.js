@@ -72,9 +72,23 @@ export function createSync({ db, rpcUrl, chainId, contracts, startBlock = null }
           blockTimestamp = Number(block.timestamp);
           timestampCache.set(log.blockNumber, blockTimestamp);
         }
+        const args = { ...parsed.args };
+        if (parsed.eventName === "MemoryListed" && contracts.memoryMarket && args.tokenId != null) {
+          try {
+            args.uri = await client.readContract({
+              address: contracts.memoryMarket,
+              abi: memoryMarketAbi,
+              functionName: "tokenURI",
+              args: [args.tokenId],
+            });
+          } catch {
+            // URI is optional metadata; the listing event still indexes.
+          }
+        }
         applyEvent(db, {
           eventName: parsed.eventName,
-          args: parsed.args,
+          eventName: parsed.eventName,
+          args,
           blockNumber: log.blockNumber,
           blockTimestamp,
         });

@@ -105,3 +105,47 @@ test("indexes service lifecycle and identity mint", async () => {
   assert.equal(agents.total, 1);
   assert.equal(agents.agents[0].identityTokenId, "7");
 });
+
+test("filters by buyer and parses listing titles", async () => {
+  const db = createDb(null);
+  applyEvent(db, ev("MemoryListed", {
+    tokenId: 3n,
+    seller,
+    priceUSDC: 80_000000n,
+    cidHash: "0xdef",
+    cid: "bafy-mod",
+    uri: "ipfs://bafy-mod?title=Session%20bridge",
+  }));
+  applyEvent(db, ev("MemorySold", {
+    tokenId: 3n,
+    buyer,
+    seller,
+    priceUSDC: 80_000000n,
+    feeUSDC: 8_000000n,
+  }));
+  applyEvent(db, ev("ServiceListed", {
+    jobId: 9n,
+    seller,
+    priceUSDC: 10_000000n,
+    deadline: 1_700_086_400n,
+    uri: "agenthub://service?title=Audit&brief=Review%20vault",
+  }));
+  applyEvent(db, ev("ServiceFunded", {
+    jobId: 9n,
+    buyer,
+    priceUSDC: 10_000000n,
+  }));
+
+  const api = createApi(db, { chainId: 84532 });
+  const memory = await getJson(api, `/memory?buyer=${buyer}`);
+  assert.equal(memory.total, 1);
+  assert.equal(memory.modules[0].title, "Session bridge");
+
+  const hired = await getJson(api, `/services?buyer=${buyer}`);
+  assert.equal(hired.total, 1);
+  assert.equal(hired.listings[0].title, "Audit");
+  assert.equal(hired.listings[0].brief, "Review vault");
+
+  const other = await getJson(api, "/memory?buyer=0x3333333333333333333333333333333333333333");
+  assert.equal(other.total, 0);
+});

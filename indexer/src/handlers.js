@@ -1,4 +1,5 @@
 import { addBig } from "./db.js";
+import { parseListingMeta } from "./listingMeta.js";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
 
@@ -15,6 +16,8 @@ export function applyEvent(db, event) {
   switch (eventName) {
     case "MemoryListed": {
       const id = args.tokenId.toString();
+      const uri = args.uri || (String(args.cid || "").startsWith("ipfs://") ? args.cid : `ipfs://${args.cid || ""}`);
+      const meta = parseListingMeta(uri);
       db.state.memory[id] = {
         id: Number(args.tokenId),
         seller: String(args.seller).toLowerCase(),
@@ -22,6 +25,9 @@ export function applyEvent(db, event) {
         priceUSDC: args.priceUSDC.toString(),
         cid: args.cid,
         cidHash: args.cidHash,
+        uri,
+        title: meta.title,
+        brief: meta.brief,
         active: true,
         sold: false,
         listedAt: ts,
@@ -53,6 +59,7 @@ export function applyEvent(db, event) {
     }
     case "ServiceListed": {
       const id = args.jobId.toString();
+      const meta = parseListingMeta(args.uri);
       db.state.services[id] = {
         id: Number(args.jobId),
         seller: String(args.seller).toLowerCase(),
@@ -60,6 +67,9 @@ export function applyEvent(db, event) {
         priceUSDC: args.priceUSDC.toString(),
         deadline: Number(args.deadline),
         uri: args.uri,
+        title: meta.title,
+        brief: meta.brief,
+        category: meta.category,
         cid: "",
         status: "Listed",
         listedAt: ts,

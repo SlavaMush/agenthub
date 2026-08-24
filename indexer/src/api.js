@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { atomicToUsdc } from "../../packages/config/index.js";
+import { withListingMeta } from "./listingMeta.js";
 
 function paginate(list, query) {
   const limit = Math.min(parseInt(query.limit || "50", 10), 200);
@@ -36,10 +37,12 @@ export function createApi(db, meta = {}) {
   app.get("/memory", (req, res) => {
     let list = Object.values(db.state.memory);
     if (req.query.seller) list = list.filter((m) => m.seller === String(req.query.seller).toLowerCase());
+    if (req.query.buyer) list = list.filter((m) => m.buyer === String(req.query.buyer).toLowerCase());
     if (req.query.active === "true") list = list.filter((m) => m.active);
     if (req.query.sold === "true") list = list.filter((m) => m.sold);
     if (req.query.sold === "false") list = list.filter((m) => !m.sold);
     list.sort((a, b) => b.listedAt - a.listedAt);
+    list = list.map((m) => withListingMeta(m, m.uri || m.cid));
     const page = paginate(list, req.query);
     res.json({ modules: page.items, total: page.total, limit: page.limit, offset: page.offset });
   });
@@ -47,14 +50,16 @@ export function createApi(db, meta = {}) {
   app.get("/memory/:id", (req, res) => {
     const item = db.state.memory[req.params.id];
     if (!item) return res.status(404).json({ error: "not found" });
-    res.json(item);
+    res.json(withListingMeta(item, item.uri || item.cid));
   });
 
   app.get("/services", (req, res) => {
     let list = Object.values(db.state.services);
     if (req.query.seller) list = list.filter((s) => s.seller === String(req.query.seller).toLowerCase());
+    if (req.query.buyer) list = list.filter((s) => s.buyer === String(req.query.buyer).toLowerCase());
     if (req.query.status) list = list.filter((s) => s.status === req.query.status);
     list.sort((a, b) => b.listedAt - a.listedAt);
+    list = list.map((s) => withListingMeta(s, s.uri));
     const page = paginate(list, req.query);
     res.json({ listings: page.items, total: page.total, limit: page.limit, offset: page.offset });
   });
@@ -62,7 +67,7 @@ export function createApi(db, meta = {}) {
   app.get("/services/:id", (req, res) => {
     const item = db.state.services[req.params.id];
     if (!item) return res.status(404).json({ error: "not found" });
-    res.json(item);
+    res.json(withListingMeta(item, item.uri));
   });
 
   app.get("/agents", (req, res) => {
