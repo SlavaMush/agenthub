@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAgents } from "@/lib/catalog";
@@ -108,9 +109,9 @@ export function AgentsTab() {
                 <Identicon address={agent.address} size={48} />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <a href={addressUrl(agent.address)} target="_blank" rel="noreferrer" className="font-mono text-lg hover:text-mint">
+                    <Link href={`/agents/${agent.address}`} className="font-mono text-lg hover:text-mint">
                       {shortAddr(agent.address)}
-                    </a>
+                    </Link>
                     {agent.verified && (
                       <span className="text-[10px] uppercase tracking-[0.14em] text-mint border border-mint/30 rounded-full px-2 py-0.5">
                         Verified
