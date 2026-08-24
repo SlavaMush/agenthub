@@ -1,0 +1,55 @@
+@import "tailwindcss";
+
+:root {
+  --color-mint: #00daa2;
+  --color-mint-dark: #00b888;
+  --color-mint-light: #33e5bb;
+  --color-bg: #0a0f0d;
+  --color-bg-elevated: #111815;
+  --color-border: #1e2d27;
+  --color-text: #e8f5f0;
+  --color-text-muted: #7a9e90;
+}
+
+@theme inline {
+  --color-mint: var(--color-mint);
+  --color-mint-dark: var(--color-mint-dark);
+  --color-mint-light: var(--color-mint-light);
+  --color-bg: var(--color-bg);
+  --color-bg-elevated: var(--color-bg-elevated);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+}
+
+* {
+  border-color: var(--color-border);
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+  
+  .bg-gradient-mint {
+    background: linear-gradient(135deg, var(--color-mint) 0%, var(--color-mint-dark) 100%);
+  }
+  
+  .border-mint {
+    border-color: var(--color-mint);
+  }
+  
+  .hover\:bg-mint\/10:hover {
+    background-color: rgba(0, 218, 162, 0.1);
+  }
+  
+  .hover\:border-mint\/50:hover {
+    border-color: rgba(0, 218, 162, 0.5);
+  }
+}
