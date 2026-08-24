@@ -41,6 +41,10 @@ export const memoryMarketAbi = [
   ], outputs: [{ type: "uint256" }] },
   { type: "function", name: "delist", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [] },
   { type: "function", name: "buy", stateMutability: "nonpayable", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "buyWithAuthorization", stateMutability: "nonpayable", inputs: [
+    { name: "tokenId", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" }, { name: "v", type: "uint8" }, { name: "r", type: "bytes32" }, { name: "s", type: "bytes32" },
+  ], outputs: [] },
   { type: "function", name: "tokenURI", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ type: "string" }] },
   { type: "function", name: "cids", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ type: "string" }] },
   { type: "function", name: "ownerOf", stateMutability: "view", inputs: [{ name: "tokenId", type: "uint256" }], outputs: [{ type: "address" }] },
@@ -89,6 +93,10 @@ export const serviceEscrowAbi = [
     { name: "uri", type: "string" }, { name: "priceUSDC", type: "uint96" }, { name: "durationSeconds", type: "uint32" },
   ], outputs: [{ type: "uint256" }] },
   { type: "function", name: "fund", stateMutability: "nonpayable", inputs: [{ name: "jobId", type: "uint256" }], outputs: [] },
+  { type: "function", name: "fundWithAuthorization", stateMutability: "nonpayable", inputs: [
+    { name: "jobId", type: "uint256" }, { name: "validAfter", type: "uint256" }, { name: "validBefore", type: "uint256" },
+    { name: "nonce", type: "bytes32" }, { name: "v", type: "uint8" }, { name: "r", type: "bytes32" }, { name: "s", type: "bytes32" },
+  ], outputs: [] },
   { type: "function", name: "deliver", stateMutability: "nonpayable", inputs: [
     { name: "jobId", type: "uint256" }, { name: "cid", type: "string" },
   ], outputs: [] },
