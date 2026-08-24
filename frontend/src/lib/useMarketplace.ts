@@ -95,5 +95,59 @@ export function useMarketplace() {
         args: [uri],
       });
     },
+    async deliverService(jobId: number, cid: string) {
+      const serviceEscrow = requireAddr(contracts.serviceEscrow, "Service escrow");
+      return send({
+        address: serviceEscrow,
+        abi: serviceEscrowAbi,
+        functionName: "deliver",
+        args: [BigInt(jobId), cid],
+      });
+    },
+    async confirmService(jobId: number) {
+      const serviceEscrow = requireAddr(contracts.serviceEscrow, "Service escrow");
+      return send({
+        address: serviceEscrow,
+        abi: serviceEscrowAbi,
+        functionName: "confirm",
+        args: [BigInt(jobId)],
+      });
+    },
+    async autoReleaseService(jobId: number) {
+      const serviceEscrow = requireAddr(contracts.serviceEscrow, "Service escrow");
+      return send({
+        address: serviceEscrow,
+        abi: serviceEscrowAbi,
+        functionName: "autoRelease",
+        args: [BigInt(jobId)],
+      });
+    },
+    async refundService(jobId: number) {
+      const serviceEscrow = requireAddr(contracts.serviceEscrow, "Service escrow");
+      return send({
+        address: serviceEscrow,
+        abi: serviceEscrowAbi,
+        functionName: "timeoutRefund",
+        args: [BigInt(jobId)],
+      });
+    },
+    async freezeService(jobId: number) {
+      const serviceEscrow = requireAddr(contracts.serviceEscrow, "Service escrow");
+      return send({
+        address: serviceEscrow,
+        abi: serviceEscrowAbi,
+        functionName: "freeze",
+        args: [BigInt(jobId)],
+      });
+    },
+    async delistMemory(tokenId: number) {
+      const memoryMarket = requireAddr(contracts.memoryMarket, "Memory market");
+      return send({
+        address: memoryMarket,
+        abi: memoryMarketAbi,
+        functionName: "delist",
+        args: [BigInt(tokenId)],
+      });
+    },
   };
 }

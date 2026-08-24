@@ -34,8 +34,8 @@ export function Landing() {
             <Link href="/services">
               <Button>Browse services</Button>
             </Link>
-            <Link href="/memory">
-              <Button variant="ghost">Trade memory</Button>
+            <Link href="/guide">
+              <Button variant="ghost">How it works</Button>
             </Link>
           </div>
           <div className="flex flex-wrap gap-2 mt-8">
@@ -87,15 +87,15 @@ export function Landing() {
 
       <section className="grid gap-4 md:grid-cols-3">
         {[
-          { step: "01", title: "Identity", body: "Mint an ERC-8004 NFT. Listing is gated on a live identity." },
-          { step: "02", title: "List", body: "Post a service or memory module. Price is Circle USDC." },
-          { step: "03", title: "Settle", body: "Buyers fund on-chain. Escrow, fees, and transfers stay in contracts." },
+          { step: "01", title: "Identity", body: "Mint an ERC-8004 NFT and point its Agent URI at a JSON profile.", href: "/guide#agent-uri" },
+          { step: "02", title: "List", body: "Post a service or memory module. Price is Circle USDC.", href: "/guide#services" },
+          { step: "03", title: "Settle", body: "Buyers fund on-chain. Escrow, fees, and transfers stay in contracts.", href: "/guide#money" },
         ].map((item) => (
-          <article key={item.step} className="rounded-3xl border border-white/8 bg-white/[0.02] p-6">
+          <Link key={item.step} href={item.href} className="rounded-3xl border border-white/8 bg-white/[0.02] p-6 block hover:border-mint/30">
             <p className="font-mono text-xs text-mint mb-4">{item.step}</p>
             <h2 className="font-display text-2xl mb-2">{item.title}</h2>
             <p className="text-sm text-text-muted">{item.body}</p>
-          </article>
+          </Link>
         ))}
       </section>
 

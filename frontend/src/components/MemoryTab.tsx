@@ -5,9 +5,11 @@ import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchMemory, type MemoryListing } from "@/lib/catalog";
 import { addressUrl, contracts, hasContract, listingTitle, shortAddr, timeAgo, txUrl } from "@/lib/app-config";
-import { matchesQuery, sortListings } from "@/lib/format";
+import { matchesQuery, sameAddr, sortListings } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
+import { HowItWorks } from "@/components/HowItWorks";
+import { buildMemoryUri } from "@/lib/uris";
 import {
   Badge,
   Button,
@@ -53,8 +55,8 @@ export function MemoryTab() {
   const modules = useMemo(() => {
     const source = data?.modules ?? [];
     const filtered = source.filter((item) => {
-      if (filter === "active") return item.active && !item.sold;
-      if (filter === "sold") return item.sold;
+      if (filter === "active" && (!item.active || item.sold)) return false;
+      if (filter === "sold" && !item.sold) return false;
       return matchesQuery(query, listingTitle(item.cid), item.cid, item.seller, item.id);
     });
     return sortListings(filtered, sort);
@@ -64,7 +66,12 @@ export function MemoryTab() {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
     try {
-      const hash = await market.listMemory(String(form.get("cid") || ""), String(form.get("uri") || ""), String(form.get("price") || "0"));
+      const cid = String(form.get("cid") || "");
+      const hash = await market.listMemory(
+        cid,
+        buildMemoryUri(cid, String(form.get("title") || ""), String(form.get("uri") || "")),
+        String(form.get("price") || "0"),
+      );
       toast.push({ tone: "ok", title: "Memory listed on-chain.", href: txUrl(hash) });
       e.currentTarget.reset();
       setOpen(false);
@@ -85,6 +92,17 @@ export function MemoryTab() {
     }
   }
 
+  async function onDelist(item: MemoryListing) {
+    try {
+      const hash = await market.delistMemory(item.id);
+      toast.push({ tone: "ok", title: `Memory #${item.id} delisted.`, href: txUrl(hash) });
+      refetch();
+      setDetail(null);
+    } catch (err) {
+      toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Delist failed" });
+    }
+  }
+
   return (
     <div className="space-y-6">
       <MarketHeader
@@ -94,6 +112,14 @@ export function MemoryTab() {
       >
         <Button onClick={() => setOpen(true)}>List memory</Button>
       </MarketHeader>
+
+      <HowItWorks
+        steps={[
+          { title: "Pin a module", body: "The CID is the Sibyl payload. The chain stores the pointer and a hash, not the bytes." },
+          { title: "List as NFT", body: "Requires ERC-8004. Set a USDC price. Token URI is metadata — default ipfs://CID, optional title." },
+          { title: "Buy transfers the NFT", body: "Buyer pays USDC in the same transaction. 10% fee to treasury. Then resolve the CID in your own stack." },
+        ]}
+      />
 
       <div className="flex flex-col xl:flex-row xl:items-center gap-3">
         <ChipRow options={filters} value={filter} onChange={setFilter} />
@@ -154,12 +180,15 @@ export function MemoryTab() {
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="List memory" subtitle="Requires ERC-8004 identity. Price in USDC.">
+      <Modal open={open} onClose={() => setOpen(false)} title="List memory" subtitle="Requires ERC-8004. Price in USDC. 10% fee on sale.">
         <form onSubmit={onList} className="space-y-4">
-          <Field label="CID">
+          <Field label="CID" hint="IPFS CID of the Sibyl module. This is what the buyer receives as the pointer.">
             <input name="cid" required placeholder="bafy…" className={inputClass()} />
           </Field>
-          <Field label="Token URI" hint="Optional. Defaults to ipfs://CID">
+          <Field label="Title" hint="Optional. Attached to the token URI for wallets and explorers.">
+            <input name="title" placeholder="Session bridge — 2026-08" className={inputClass()} />
+          </Field>
+          <Field label="Token URI" hint="Optional metadata URI. Defaults to ipfs://CID.">
             <input name="uri" placeholder="ipfs://…" className={inputClass()} />
           </Field>
           <Field label="Price USDC">
@@ -188,6 +217,11 @@ export function MemoryTab() {
               <Identicon address={detail.seller} size={28} />
               {shortAddr(detail.seller)}
             </a>
+            {!detail.sold && detail.active && sameAddr(market.address, detail.seller) && (
+              <Button variant="ghost" className="w-full" disabled={!market.isConnected || market.isPending} onClick={() => onDelist(detail)}>
+                Delist
+              </Button>
+            )}
             <Button className="w-full" disabled={detail.sold || !detail.active || !market.isConnected || market.isPending} onClick={() => onBuy(detail)}>
               Buy with USDC
             </Button>

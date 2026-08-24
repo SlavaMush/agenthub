@@ -64,7 +64,16 @@ export function listingTitle(uriOrCid: string) {
   if (!uriOrCid) return "Untitled";
   try {
     const url = new URL(uriOrCid);
-    return url.searchParams.get("title") || url.hostname + url.pathname;
+    const titled = url.searchParams.get("title");
+    if (titled) return titled;
+    if (url.protocol === "agenthub:") return "Untitled listing";
+    if (url.protocol === "ipfs:") {
+      const cid = (url.hostname || url.pathname.replace(/^\//, "")).split("?")[0];
+      if (cid.length > 22) return `${cid.slice(0, 10)}…${cid.slice(-6)}`;
+      return cid || "ipfs";
+    }
+    if (url.protocol === "data:") return "Embedded profile";
+    return url.hostname || uriOrCid;
   } catch {
     if (uriOrCid.length > 42) return `${uriOrCid.slice(0, 18)}…${uriOrCid.slice(-8)}`;
     return uriOrCid;

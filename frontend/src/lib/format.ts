@@ -45,3 +45,8 @@ export function matchesQuery(query: string, ...fields: Array<string | number | n
   if (!q) return true;
   return fields.some((field) => String(field || "").toLowerCase().includes(q));
 }
+
+export function sameAddr(a?: string | null, b?: string | null) {
+  if (!a || !b) return false;
+  return a.toLowerCase() === b.toLowerCase();
+}

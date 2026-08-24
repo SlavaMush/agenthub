@@ -51,6 +51,12 @@ export function AppShell({ children }: { children: ReactNode }) {
 
             <div className="flex items-center gap-2">
               <Link
+                href="/guide"
+                className="inline-flex h-9 items-center px-3.5 rounded-full text-xs font-semibold text-text-muted hover:text-text"
+              >
+                Guide
+              </Link>
+              <Link
                 href="/services?list=1"
                 className="hidden sm:inline-flex h-9 items-center px-3.5 rounded-full text-xs font-semibold border border-white/10 text-text-muted hover:text-text hover:border-mint/40"
               >
@@ -83,6 +89,9 @@ export function AppShell({ children }: { children: ReactNode }) {
           <div className="max-w-6xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-4 text-sm text-text-muted">
             <p>AgentHub · Non-custodial USDC settlement on Base</p>
             <div className="flex items-center gap-6">
+              <Link href="/guide" className="hover:text-mint">
+                Guide
+              </Link>
               <a href="https://github.com/SlavaMush/agenthub" target="_blank" rel="noopener noreferrer" className="hover:text-mint">
                 GitHub
               </a>

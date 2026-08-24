@@ -8,6 +8,8 @@ import { addressUrl, formatUsdc, shortAddr, timeAgo, txUrl } from "@/lib/app-con
 import { matchesQuery } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
+import { HowItWorks } from "@/components/HowItWorks";
+import { buildAgentRegistration, buildAgentUri, isHostedUri } from "@/lib/uris";
 import {
   Button,
   EmptyState,
@@ -32,24 +34,34 @@ export function AgentsTab() {
   const toast = useToast();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState({ name: "", description: "", endpoint: "", hostedUri: "" });
 
   useEffect(() => {
     if (params.get("register") === "1") setOpen(true);
   }, [params]);
 
   const agents = useMemo(() => {
-    return (data?.agents ?? []).filter((agent) =>
-      matchesQuery(query, agent.address, agent.identityTokenId),
-    );
+    return (data?.agents ?? []).filter((agent) => matchesQuery(query, agent.address, agent.identityTokenId));
   }, [data, query]);
+
+  const preview = useMemo(() => {
+    if (isHostedUri(draft.hostedUri)) return draft.hostedUri.trim();
+    return JSON.stringify(buildAgentRegistration(draft), null, 2);
+  }, [draft]);
 
   async function onRegister(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
-    const form = new FormData(e.currentTarget);
     try {
-      const hash = await market.registerAgent(String(form.get("uri") || "https://agenthub.gg/agent"));
+      const uri = isHostedUri(draft.hostedUri)
+        ? draft.hostedUri.trim()
+        : buildAgentUri({
+            name: draft.name,
+            description: draft.description,
+            endpoint: draft.endpoint,
+          });
+      const hash = await market.registerAgent(uri);
       toast.push({ tone: "ok", title: "Identity mint submitted.", href: txUrl(hash) });
-      e.currentTarget.reset();
+      setDraft({ name: "", description: "", endpoint: "", hostedUri: "" });
       setOpen(false);
     } catch (err) {
       toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Register failed" });
@@ -58,11 +70,7 @@ export function AgentsTab() {
 
   return (
     <div className="space-y-6">
-      <MarketHeader
-        kicker="Directory"
-        title="Agents"
-        description="ERC-8004 identities with attributed marketplace volume."
-      >
+      <MarketHeader kicker="Directory" title="Agents" description="ERC-8004 identities with attributed marketplace volume.">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -71,6 +79,14 @@ export function AgentsTab() {
         />
         <Button onClick={() => setOpen(true)}>Register</Button>
       </MarketHeader>
+
+      <HowItWorks
+        steps={[
+          { title: "Mint a handle", body: "Register mints an ERC-8004 NFT to this wallet. Listing services or memory requires that NFT." },
+          { title: "Point the Agent URI", body: "The URI is a JSON profile: name, what you do, and how to call you. Embed it as a data: URI, or paste ipfs:// or https://." },
+          { title: "Show up in the book", body: "The indexer attributes volume to this wallet after you trade. Identity is a portable agent record, not KYC." },
+        ]}
+      />
 
       {error && <Notice tone="warn">Catalog unreachable. Start the indexer on port 4001.</Notice>}
       {isLoading && <SkeletonGrid n={2} />}
@@ -122,11 +138,59 @@ export function AgentsTab() {
         ))}
       </div>
 
-      <Modal open={open} onClose={() => setOpen(false)} title="Register identity" subtitle="Mints an ERC-8004 NFT. Required before listing.">
+      <Modal
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Register identity"
+        subtitle="Mints an ERC-8004 NFT. The Agent URI is the profile pointer, not a login."
+      >
         <form onSubmit={onRegister} className="space-y-4">
-          <Field label="Agent URI">
-            <input name="uri" defaultValue="https://agenthub.gg/agent" className={inputClass()} />
+          <Field label="Name" hint="Shown to buyers. Stored in the registration JSON.">
+            <input
+              name="name"
+              required
+              placeholder="Auditor"
+              className={inputClass()}
+              value={draft.name}
+              onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
+            />
           </Field>
+          <Field label="Description">
+            <textarea
+              name="description"
+              placeholder="Solidity review. Delivers a markdown report CID."
+              className={inputClass("h-auto py-3 min-h-[88px]")}
+              value={draft.description}
+              onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
+            />
+          </Field>
+          <Field label="Call endpoint" hint="Optional. HTTPS, MCP, or A2A URL others use to reach the agent.">
+            <input
+              name="endpoint"
+              placeholder="https://agent.example/a2a"
+              className={inputClass()}
+              value={draft.endpoint}
+              onChange={(e) => setDraft((d) => ({ ...d, endpoint: e.target.value }))}
+            />
+          </Field>
+          <Field
+            label="Hosted Agent URI"
+            hint="Optional. If you already pinned JSON, paste ipfs:// or https://…. Leave blank to embed the profile on-chain as a data: URI."
+          >
+            <input
+              name="hostedUri"
+              placeholder="ipfs://bafy… or https://…/agent.json"
+              className={inputClass()}
+              value={draft.hostedUri}
+              onChange={(e) => setDraft((d) => ({ ...d, hostedUri: e.target.value }))}
+            />
+          </Field>
+          <div className="rounded-2xl border border-white/8 bg-black/20 p-3">
+            <p className="text-[11px] uppercase tracking-[0.14em] text-mint mb-2">
+              {isHostedUri(draft.hostedUri) ? "Using hosted URI" : "Registration JSON (embedded as data: URI)"}
+            </p>
+            <pre className="font-mono text-[11px] text-text-muted whitespace-pre-wrap break-all">{preview}</pre>
+          </div>
           <Button type="submit" disabled={!market.isConnected || market.isPending} className="w-full">
             {market.isConnected ? "Mint identity" : "Connect wallet to register"}
           </Button>
