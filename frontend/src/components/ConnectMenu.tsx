@@ -22,24 +22,27 @@ export function ConnectMenu() {
   });
 
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-text-muted text-sm hidden sm:block">{appChain.displayName}</span>
+    <div className="flex items-center gap-2">
+      <span className="hidden lg:inline-flex items-center gap-2 h-9 px-3 rounded-full border border-white/10 bg-white/[0.03] text-[11px] uppercase tracking-[0.14em] text-text-muted">
+        <span className="h-1.5 w-1.5 rounded-full bg-mint shadow-[0_0_8px_#00e3ab]" />
+        {appChain.displayName}
+      </span>
       {wrongNetwork && (
         <button
           onClick={() => switchChain({ chainId: APP_CHAIN_ID === 8453 ? base.id : baseSepolia.id })}
-          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-500/15 text-amber-300 border border-amber-500/30"
+          className="h-9 px-3 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-200 border border-amber-500/30"
         >
           Switch network
         </button>
       )}
       {isConnected && isAgent === true && (
-        <span className="hidden md:inline px-2 py-0.5 rounded-full bg-mint/10 text-mint text-xs border border-mint/30">
+        <span className="hidden md:inline-flex h-9 items-center px-3 rounded-full bg-mint/10 text-mint text-[11px] font-semibold border border-mint/25">
           ERC-8004
         </span>
       )}
       <Wallet>
-        <ConnectWallet className="bg-bg-elevated border border-border hover:border-mint/50 rounded-xl px-3 py-2">
-          <Avatar className="h-6 w-6" />
+        <ConnectWallet className="!h-10 !rounded-full !px-4 !bg-gradient-mint !text-bg !font-semibold !border-0 hover:!brightness-110">
+          <Avatar className="h-5 w-5" />
           <Name />
         </ConnectWallet>
         <WalletDropdown>

@@ -1,120 +1,146 @@
 "use client";
 
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAgents } from "@/lib/catalog";
-import { formatUsdc, shortAddr } from "@/lib/app-config";
+import { addressUrl, formatUsdc, shortAddr, timeAgo, txUrl } from "@/lib/app-config";
+import { matchesQuery } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
+import { useToast } from "@/components/Toast";
+import {
+  Button,
+  EmptyState,
+  Field,
+  Identicon,
+  MarketHeader,
+  Modal,
+  Notice,
+  SkeletonGrid,
+  inputClass,
+} from "@/components/ui";
 
 export function AgentsTab() {
+  const params = useSearchParams();
   const { data, error, isLoading } = useQuery({
     queryKey: ["agents"],
     queryFn: fetchAgents,
     refetchInterval: 12_000,
     retry: 1,
   });
-  const [search, setSearch] = useState("");
   const market = useMarketplace();
-  const [status, setStatus] = useState<string | null>(null);
+  const toast = useToast();
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+
+  useEffect(() => {
+    if (params.get("register") === "1") setOpen(true);
+  }, [params]);
 
   const agents = useMemo(() => {
-    const q = search.toLowerCase();
-    return (data?.agents ?? []).filter(
-      (a) => a.address.includes(q) || String(a.identityTokenId || "").includes(q),
+    return (data?.agents ?? []).filter((agent) =>
+      matchesQuery(query, agent.address, agent.identityTokenId),
     );
-  }, [data, search]);
+  }, [data, query]);
 
   async function onRegister(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
-    setStatus("Registering…");
     try {
-      await market.registerAgent(String(form.get("uri") || "https://agenthub.base/agent"));
-      setStatus("Identity mint submitted.");
+      const hash = await market.registerAgent(String(form.get("uri") || "https://agenthub.gg/agent"));
+      toast.push({ tone: "ok", title: "Identity mint submitted.", href: txUrl(hash) });
       e.currentTarget.reset();
+      setOpen(false);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Register failed");
+      toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Register failed" });
     }
   }
 
   return (
-    <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">/agents</h1>
-          <p className="text-text-muted mt-1">ERC-8004 identity directory plus marketplace volume from the indexer.</p>
-        </div>
+    <div className="space-y-6">
+      <MarketHeader
+        kicker="Directory"
+        title="Agents"
+        description="ERC-8004 identities with attributed marketplace volume."
+      >
         <input
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search address or token id"
-          className="px-4 py-2.5 rounded-xl bg-bg-elevated border border-border text-text placeholder-text-muted focus:border-mint/50 focus:outline-none"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search address or token"
+          className={inputClass("h-10 max-w-xs")}
         />
-      </div>
+        <Button onClick={() => setOpen(true)}>Register</Button>
+      </MarketHeader>
 
-      {isLoading && <p className="text-text-muted">Loading catalog…</p>}
-      {error && <p className="text-amber-300 text-sm">Catalog unavailable. Start the indexer on :4001.</p>}
+      {error && <Notice tone="warn">Catalog unreachable. Start the indexer on port 4001.</Notice>}
+      {isLoading && <SkeletonGrid n={2} />}
 
-      <div className="space-y-4">
+      {!isLoading && agents.length === 0 && (
+        <EmptyState
+          kicker="Identity"
+          title={query ? "No agents match that query." : "No identities indexed yet."}
+          body="Register an ERC-8004 NFT, then list memory or services. Volume attributes to this wallet."
+          action={<Button onClick={() => setOpen(true)}>Register identity</Button>}
+        />
+      )}
+
+      <div className="space-y-3">
         {agents.map((agent) => (
-          <article key={agent.address} className="bg-bg-elevated border border-border rounded-2xl p-6">
-            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-3">
-                  <h3 className="text-xl font-bold font-mono">{shortAddr(agent.address)}</h3>
-                  {agent.verified && (
-                    <span className="px-2 py-0.5 rounded-full bg-mint/10 text-mint text-xs font-medium">Verified</span>
-                  )}
+          <article key={agent.address} className="card rounded-3xl p-5 sm:p-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="flex items-start gap-4 min-w-0">
+                <Identicon address={agent.address} size={48} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <a href={addressUrl(agent.address)} target="_blank" rel="noreferrer" className="font-mono text-lg hover:text-mint">
+                      {shortAddr(agent.address)}
+                    </a>
+                    {agent.verified && (
+                      <span className="text-[10px] uppercase tracking-[0.14em] text-mint border border-mint/30 rounded-full px-2 py-0.5">
+                        Verified
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-text-muted mt-1">
+                    {agent.identityTokenId ? `Token #${agent.identityTokenId}` : "No token yet"}
+                    {agent.registeredAt ? ` · ${timeAgo(agent.registeredAt)}` : ""}
+                  </p>
                 </div>
-                <p className="text-text-muted text-sm mt-1 font-mono break-all">{agent.address}</p>
               </div>
-              <div className="text-right">
-                <div className="text-2xl font-bold font-mono text-mint">{formatUsdc(agent.volumeUSDC)} USDC</div>
-                <div className="text-xs text-text-muted">Lifetime volume</div>
+              <div className="sm:text-right">
+                <div className="text-[11px] uppercase tracking-[0.14em] text-text-muted">Volume</div>
+                <div className="font-mono text-2xl text-mint">${formatUsdc(agent.volumeUSDC)}</div>
               </div>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 pt-4 mt-4 border-t border-border text-sm">
-              <Metric label="Memory listed" value={String(agent.memoryListed)} />
-              <Metric label="Memory sold" value={String(agent.memorySold)} />
-              <Metric label="Services listed" value={String(agent.servicesListed)} />
-              <Metric label="Services done" value={String(agent.servicesCompleted)} />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 pt-4 border-t border-white/8">
+              <Metric label="Memory listed" value={agent.memoryListed} />
+              <Metric label="Memory sold" value={agent.memorySold} />
+              <Metric label="Services listed" value={agent.servicesListed} />
+              <Metric label="Services done" value={agent.servicesCompleted} />
             </div>
-            {agent.identityTokenId && (
-              <p className="text-xs text-text-muted mt-3">Identity token #{agent.identityTokenId}</p>
-            )}
           </article>
         ))}
       </div>
 
-      {!isLoading && agents.length === 0 && (
-        <div className="text-center py-16 text-text-muted">No agents indexed yet. Register below, then list.</div>
-      )}
-
-      <form onSubmit={onRegister} className="border border-mint/30 rounded-2xl p-8 bg-mint/5 space-y-4">
-        <h3 className="text-xl font-semibold">Register ERC-8004 identity</h3>
-        <p className="text-text-muted text-sm">Mints an identity NFT on Base. Required before listing memory or services.</p>
-        <input
-          name="uri"
-          defaultValue="https://agenthub.base/agent"
-          className="w-full px-4 py-2.5 rounded-xl bg-bg-elevated border border-border"
-        />
-        <button
-          disabled={!market.isConnected || market.isPending}
-          className="px-6 py-3 rounded-xl bg-gradient-mint text-bg font-medium hover:opacity-90 disabled:opacity-40"
-        >
-          Register agent
-        </button>
-        {status && <p className="text-sm text-text-muted">{status}</p>}
-      </form>
+      <Modal open={open} onClose={() => setOpen(false)} title="Register identity" subtitle="Mints an ERC-8004 NFT. Required before listing.">
+        <form onSubmit={onRegister} className="space-y-4">
+          <Field label="Agent URI">
+            <input name="uri" defaultValue="https://agenthub.gg/agent" className={inputClass()} />
+          </Field>
+          <Button type="submit" disabled={!market.isConnected || market.isPending} className="w-full">
+            {market.isConnected ? "Mint identity" : "Connect wallet to register"}
+          </Button>
+        </form>
+      </Modal>
     </div>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({ label, value }: { label: string; value: number }) {
   return (
     <div>
-      <div className="text-xs text-text-muted">{label}</div>
-      <div className="font-mono font-semibold text-mint">{value}</div>
+      <div className="text-[11px] uppercase tracking-[0.12em] text-text-muted">{label}</div>
+      <div className="font-mono text-lg">{value}</div>
     </div>
   );
 }
