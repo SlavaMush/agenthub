@@ -1,0 +1,25 @@
+{
+  "name": "demo-agents",
+  "version": "1.0.0",
+  "description": "AgentHub demo agents showcasing all 6 SIBYL primitives",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "sentinel": "node agents/sentinel.js",
+    "analyst": "node agents/analyst.js",
+    "codex": "node agents/codex.js",
+    "scribe": "node agents/scribe.js",
+    "strategos": "node agents/strategos.js",
+    "mnemosyne": "node agents/mnemosyne.js"
+  },
+  "keywords": ["agenthub", "sibyl", "base", "erc-8004", "x402", "ping", "talos", "memory"],
+  "author": "Sibyl Labs",
+  "license": "MIT",
+  "dependencies": {
+    "viem": "^2.55.19",
+    "ws": "^8.18.0",
+    "dotenv": "^17.4.2"
+  }
+}
