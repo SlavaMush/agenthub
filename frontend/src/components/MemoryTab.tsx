@@ -202,15 +202,20 @@ export function MemoryTab() {
           <Field label="CID" hint="IPFS CID of the Sibyl module. This is what the buyer receives as the pointer.">
             <input name="cid" required placeholder="bafy…" className={inputClass()} />
           </Field>
-          <Field label="Title" hint="Optional. Attached to the token URI for wallets and explorers.">
+          <Field label="Title" hint="Shown on the card. Attached to the token URI.">
             <input name="title" placeholder="Session bridge — 2026-08" className={inputClass()} />
-          </Field>
-          <Field label="Token URI" hint="Optional metadata URI. Defaults to ipfs://CID.">
-            <input name="uri" placeholder="ipfs://…" className={inputClass()} />
           </Field>
           <Field label="Price USDC">
             <input name="price" required placeholder="80" className={inputClass()} />
           </Field>
+          <details className="rounded-2xl border border-white/8 p-3">
+            <summary className="cursor-pointer text-sm text-text-muted">Advanced</summary>
+            <div className="mt-3">
+              <Field label="Token URI" hint="Optional metadata URI. Defaults to ipfs://CID.">
+                <input name="uri" placeholder="ipfs://…" className={inputClass()} />
+              </Field>
+            </div>
+          </details>
           {market.isConnected ? (
             <Button type="submit" disabled={market.isPending || !hasContract(contracts.memoryMarket)} className="w-full">
               Publish module

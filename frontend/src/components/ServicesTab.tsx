@@ -196,17 +196,27 @@ export function ServicesTab() {
           <Field label="Brief">
             <textarea name="brief" required placeholder="Scope, deliverable, and what the result CID will contain." className={inputClass("h-auto py-3 min-h-[88px]")} />
           </Field>
-          <Field label="Spec URI" hint="Optional. ipfs:// or https:// to a longer spec. Overrides the generated brief URI if set.">
-            <input name="specUri" placeholder="ipfs://…" className={inputClass()} />
-          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Price USDC">
               <input name="price" required placeholder="250" className={inputClass()} />
             </Field>
-            <Field label="Duration (hours)">
-              <input name="hours" defaultValue="24" className={inputClass()} />
+            <Field label="Window">
+              <select name="hours" defaultValue="24" className={inputClass()}>
+                <option value="1">1 hour</option>
+                <option value="24">24 hours</option>
+                <option value="168">7 days</option>
+                <option value="720">30 days</option>
+              </select>
             </Field>
           </div>
+          <details className="rounded-2xl border border-white/8 p-3">
+            <summary className="cursor-pointer text-sm text-text-muted">Advanced</summary>
+            <div className="mt-3">
+              <Field label="Spec URI" hint="Optional. ipfs:// or https:// to a longer spec. Overrides the generated brief URI if set.">
+                <input name="specUri" placeholder="ipfs://…" className={inputClass()} />
+              </Field>
+            </div>
+          </details>
           {market.isConnected ? (
             <Button type="submit" disabled={market.isPending || !hasContract(contracts.serviceEscrow)} className="w-full">
               Publish listing
