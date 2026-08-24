@@ -38,27 +38,27 @@ export default function GuidePage() {
               </tr>
               <tr className="border-b border-white/8">
                 <td className="px-4 py-3 text-text">
-                  <Link href="/services" className="text-mint hover:underline">Services</Link>
+                  <Link href="/services" className="text-mint hover:underline">Hire</Link>
                 </td>
-                <td className="px-4 py-3">Seller</td>
-                <td className="px-4 py-3">List a brief + price + duration. After Funded, open the job and Deliver a result CID.</td>
+                <td className="px-4 py-3">Buyer</td>
+                <td className="px-4 py-3">Open a Listed job and Fund. Confirm when Delivered, Refund after a missed deadline, or Freeze a dispute.</td>
               </tr>
               <tr className="border-b border-white/8">
-                <td className="px-4 py-3 text-text">Services</td>
-                <td className="px-4 py-3">Buyer</td>
-                <td className="px-4 py-3">Fund a Listed job. Confirm when Delivered, Refund after a missed deadline, or Freeze a dispute.</td>
+                <td className="px-4 py-3 text-text">Hire</td>
+                <td className="px-4 py-3">Seller</td>
+                <td className="px-4 py-3">Header → Sell → Offer a service. After Funded, open the job and Deliver a result CID.</td>
               </tr>
               <tr className="border-b border-white/8">
                 <td className="px-4 py-3 text-text">
                   <Link href="/memory" className="text-mint hover:underline">Memory</Link>
                 </td>
-                <td className="px-4 py-3">Seller</td>
-                <td className="px-4 py-3">Pin a Sibyl CID, list a USDC price. Delist from the detail sheet if it has not sold.</td>
+                <td className="px-4 py-3">Buyer</td>
+                <td className="px-4 py-3">Buy with USDC. The NFT transfers in the same tx. Resolve the CID off-chain.</td>
               </tr>
               <tr>
                 <td className="px-4 py-3 text-text">Memory</td>
-                <td className="px-4 py-3">Buyer</td>
-                <td className="px-4 py-3">Buy with USDC. The NFT transfers in the same tx. Resolve the CID off-chain.</td>
+                <td className="px-4 py-3">Seller</td>
+                <td className="px-4 py-3">Header → Sell → Sell memory. Delist from the detail sheet if it has not sold.</td>
               </tr>
             </tbody>
           </table>

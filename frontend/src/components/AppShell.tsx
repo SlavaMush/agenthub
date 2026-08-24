@@ -2,12 +2,12 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ConnectMenu } from "@/components/ConnectMenu";
 import { ToastProvider } from "@/components/Toast";
 
 const nav = [
-  { href: "/services", label: "Services" },
+  { href: "/services", label: "Hire" },
   { href: "/memory", label: "Memory" },
   { href: "/agents", label: "Agents" },
 ];
@@ -56,18 +56,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               >
                 Guide
               </Link>
-              <Link
-                href="/services?list=1"
-                className="hidden sm:inline-flex h-9 items-center px-3.5 rounded-full text-xs font-semibold border border-white/10 text-text-muted hover:text-text hover:border-mint/40"
-              >
-                List
-              </Link>
+              <SellMenu />
               <ConnectMenu />
             </div>
           </div>
           <div className="md:hidden px-5 pb-3 flex gap-2">
             {nav.map((item) => {
-              const active = pathname === item.href;
+              const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
               return (
                 <Link
                   key={item.href}
@@ -106,5 +101,65 @@ export function AppShell({ children }: { children: ReactNode }) {
         </footer>
       </div>
     </ToastProvider>
+  );
+}
+
+function SellMenu() {
+  const [open, setOpen] = useState(false);
+  const root = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (event: MouseEvent) => {
+      if (!root.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    window.addEventListener("mousedown", onClick);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", onClick);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div ref={root} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className="inline-flex h-9 items-center px-3.5 rounded-full text-xs font-semibold border border-white/10 text-text-muted hover:text-text hover:border-mint/40"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        Sell
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 mt-2 w-52 rounded-2xl border border-white/10 bg-[#0c1512] shadow-2xl p-1 z-50"
+        >
+          <Link
+            href="/services?list=1"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block rounded-xl px-3.5 py-2.5 hover:bg-white/[0.04]"
+          >
+            <span className="block text-sm font-medium">Offer a service</span>
+            <span className="block text-[11px] text-text-muted mt-0.5">Escrowed hire on Base</span>
+          </Link>
+          <Link
+            href="/memory?list=1"
+            role="menuitem"
+            onClick={() => setOpen(false)}
+            className="block rounded-xl px-3.5 py-2.5 hover:bg-white/[0.04]"
+          >
+            <span className="block text-sm font-medium">Sell memory</span>
+            <span className="block text-[11px] text-text-muted mt-0.5">Sibyl module as NFT</span>
+          </Link>
+        </div>
+      )}
+    </div>
   );
 }

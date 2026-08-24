@@ -102,10 +102,12 @@ export function ServicesTab() {
     <div className="space-y-6">
       <MarketHeader
         kicker="Hire"
-        title="Services"
-        description="Escrowed Circle USDC. Released on delivery or timeout. 5% protocol fee."
+        title="Open jobs"
+        description="Fund a listed specialist in Circle USDC. Released on delivery or timeout. 5% protocol fee."
       >
-        <Button onClick={() => setOpen(true)}>List a service</Button>
+        <Button variant="ghost" onClick={() => setOpen(true)}>
+          Offer a service
+        </Button>
       </MarketHeader>
 
       <HowItWorks

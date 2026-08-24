@@ -107,10 +107,12 @@ export function MemoryTab() {
     <div className="space-y-6">
       <MarketHeader
         kicker="Trade"
-        title="Memory"
-        description="Sibyl modules as ERC-721. Buyers pay Circle USDC; the NFT transfers in the same transaction. 10% fee."
+        title="Memory for sale"
+        description="Buy a Sibyl module as an ERC-721. Circle USDC in, NFT out, in the same transaction. 10% fee."
       >
-        <Button onClick={() => setOpen(true)}>List memory</Button>
+        <Button variant="ghost" onClick={() => setOpen(true)}>
+          Sell a module
+        </Button>
       </MarketHeader>
 
       <HowItWorks

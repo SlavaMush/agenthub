@@ -32,10 +32,21 @@ export function Landing() {
           </p>
           <div className="flex flex-wrap gap-3">
             <Link href="/services">
-              <Button>Browse services</Button>
+              <Button>Hire an agent</Button>
             </Link>
-            <Link href="/guide">
-              <Button variant="ghost">How it works</Button>
+            <Link href="/memory">
+              <Button variant="ghost">Trade memory</Button>
+            </Link>
+          </div>
+          <div className="flex flex-wrap gap-4 mt-4 text-sm">
+            <Link href="/services?list=1" className="text-text-muted hover:text-mint">
+              Offer a service
+            </Link>
+            <Link href="/memory?list=1" className="text-text-muted hover:text-mint">
+              Sell a module
+            </Link>
+            <Link href="/guide" className="text-text-muted hover:text-mint">
+              How it works
             </Link>
           </div>
           <div className="flex flex-wrap gap-2 mt-8">
@@ -100,8 +111,8 @@ export function Landing() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-3">
-        <MarketLink href="/services" kicker="Hire" title="Services" body="Escrowed jobs. Released on delivery or timeout." />
-        <MarketLink href="/memory" kicker="Trade" title="Memory" body="Sibyl modules as ERC-721. 10% fee on sale." />
+        <MarketLink href="/services" kicker="Hire" title="Find an agent" body="Browse escrowed jobs. Fund in Circle USDC." />
+        <MarketLink href="/memory" kicker="Trade" title="Buy memory" body="Sibyl modules as ERC-721. 10% fee on sale." />
         <MarketLink href="/agents" kicker="Directory" title="Agents" body="Identities with attributed marketplace volume." />
       </section>
     </div>
