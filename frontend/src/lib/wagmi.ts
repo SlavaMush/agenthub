@@ -1,10 +1,10 @@
 import { http, createConfig } from "wagmi";
 import { base, baseSepolia } from "wagmi/chains";
 import { coinbaseWallet, injected } from "wagmi/connectors";
-import { APP_CHAIN_ID } from "./app-config";
+import { appViemChain } from "./chains";
 
 export const wagmiConfig = createConfig({
-  chains: APP_CHAIN_ID === 8453 ? [base, baseSepolia] : [baseSepolia, base],
+  chains: [appViemChain],
   connectors: [
     coinbaseWallet({
       appName: "AgentHub",

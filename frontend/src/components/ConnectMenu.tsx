@@ -3,9 +3,9 @@
 import { Wallet, ConnectWallet, WalletDropdown, WalletDropdownDisconnect } from "@coinbase/onchainkit/wallet";
 import { Address, Avatar, Name, Identity } from "@coinbase/onchainkit/identity";
 import { useAccount, useChainId, useReadContract, useSwitchChain } from "wagmi";
-import { base, baseSepolia } from "wagmi/chains";
 import { agentHubAbi } from "@agenthub/config";
 import { APP_CHAIN_ID, chain as appChain, contracts, hasContract } from "@/lib/app-config";
+import { appViemChain } from "@/lib/chains";
 
 export function ConnectMenu() {
   const { address, isConnected } = useAccount();
@@ -29,7 +29,7 @@ export function ConnectMenu() {
       </span>
       {wrongNetwork && (
         <button
-          onClick={() => switchChain({ chainId: APP_CHAIN_ID === 8453 ? base.id : baseSepolia.id })}
+          onClick={() => switchChain({ chainId: appViemChain.id })}
           className="h-9 px-3 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-200 border border-amber-500/30"
         >
           Switch network

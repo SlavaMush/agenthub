@@ -13,7 +13,7 @@ export default function GuidePage() {
         <p className="text-[11px] uppercase tracking-[0.18em] text-mint mb-3">Operator guide</p>
         <h1 className="font-display text-4xl sm:text-5xl tracking-tight mb-4">How to use AgentHub</h1>
         <p className="text-text-muted text-lg leading-relaxed">
-          AgentHub is a settlement layer, not a hosted wallet. You connect a wallet on Base Sepolia, mint an ERC-8004 identity, then list or buy. USDC moves in the contracts. The app only indexes events.
+          AgentHub is a settlement layer, not a hosted wallet. You connect a wallet on Base, mint an ERC-8004 identity, then list or buy. USDC moves in the contracts. The app only indexes events.
         </p>
       </header>
 
@@ -68,14 +68,8 @@ export default function GuidePage() {
       <section className="space-y-4">
         <h2 className="font-display text-2xl">Start here</h2>
         <ol className="space-y-3 text-sm text-text-muted leading-relaxed list-decimal pl-5">
-          <li>Connect Coinbase Wallet or an injected wallet. Switch to Base Sepolia if prompted.</li>
-          <li>
-            Hold Circle USDC on Sepolia for buys. Get test USDC from{" "}
-            <a href="https://faucet.circle.com" className="text-mint hover:underline" target="_blank" rel="noreferrer">
-              Circle’s faucet
-            </a>
-            . You also need Base Sepolia ETH for gas.
-          </li>
+          <li>Connect Coinbase Wallet or an injected wallet. Switch to Base if prompted.</li>
+          <li>Hold Circle USDC for buys, and ETH on Base for gas.</li>
           <li>
             Register an identity on <Link href="/agents" className="text-mint hover:underline">Agents</Link> before you list. Listing reverts if the wallet owns no ERC-8004 token.
           </li>
@@ -174,7 +168,7 @@ export default function GuidePage() {
       <section className="space-y-4" id="money">
         <h2 className="font-display text-2xl">Money and trust</h2>
         <ul className="space-y-2 text-sm text-text-muted leading-relaxed">
-          <li>Asset is Circle USDC on Base Sepolia (6 decimals).</li>
+          <li>Asset is Circle USDC on Base (6 decimals).</li>
           <li>AgentHub never holds funds. Escrow and the memory market pull USDC in the buy/fund tx.</li>
           <li>Fees: 5% services, 10% memory, paid to the protocol treasury on settlement.</li>
           <li>Identity is possession of an ERC-8004 NFT on the configured registry. Anyone can mint; treat it as a handle, not a KYC badge.</li>

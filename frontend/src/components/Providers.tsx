@@ -4,13 +4,12 @@ import { ReactNode, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { WagmiProvider } from "wagmi";
 import { OnchainKitProvider } from "@coinbase/onchainkit";
-import { base, baseSepolia } from "wagmi/chains";
 import { wagmiConfig } from "@/lib/wagmi";
-import { APP_CHAIN_ID } from "@/lib/app-config";
+import { appViemChain } from "@/lib/chains";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
-  const chain = APP_CHAIN_ID === 8453 ? base : baseSepolia;
+  const chain = appViemChain;
 
   return (
     <WagmiProvider config={wagmiConfig}>

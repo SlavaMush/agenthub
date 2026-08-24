@@ -21,7 +21,7 @@ export const BASE = {
 export const BASE_SEPOLIA = {
   chainId: 84532,
   name: "base-sepolia",
-  displayName: "Base Sepolia",
+  displayName: "Base",
   rpcUrls: [
     "https://sepolia.base.org",
   ],
