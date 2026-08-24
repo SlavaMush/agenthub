@@ -9,6 +9,8 @@
     ".": "./index.js",
     "./chains": "./chains.js",
     "./abis/usdc": "./abis/usdc.js",
-    "./abis/erc8004": "./abis/erc8004.js"
+    "./abis/erc8004": "./abis/erc8004.js",
+    "./abis/marketplace": "./abis/marketplace.js",
+    "./deployments": "./deployments.js"
   }
 }

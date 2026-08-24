@@ -1,6 +1,8 @@
 export { BASE, BASE_SEPOLIA, CHAINS, getChain, isSupportedChain } from "./chains.js";
 export { usdcAbi, RECEIVE_WITH_AUTHORIZATION_TYPES } from "./abis/usdc.js";
 export { erc8004IdentityAbi, isRegistered } from "./abis/erc8004.js";
+export { agentHubAbi, memoryMarketAbi, serviceEscrowAbi, JOB_STATUS } from "./abis/marketplace.js";
+export { DEPLOYMENTS, getDeployments } from "./deployments.js";
 
 export const X402 = {
   scheme: "exact",
