@@ -39,7 +39,7 @@ export function MemoryTab() {
   const params = useSearchParams();
   const { data, error, isLoading, refetch } = useQuery({
     queryKey: ["memory"],
-    queryFn: fetchMemory,
+    queryFn: () => fetchMemory(),
     refetchInterval: 12_000,
     retry: 1,
   });

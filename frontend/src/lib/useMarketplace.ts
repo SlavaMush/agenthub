@@ -52,7 +52,7 @@ export function useMarketplace() {
 
   async function signReceiveAuth(to: `0x${string}`, value: bigint) {
     if (!address) throw new Error("Connect a wallet first");
-    const validAfter = 0n;
+    const validAfter = BigInt(0);
     const validBefore = BigInt(Math.floor(Date.now() / 1000) + 3600);
     const nonce = toHex(crypto.getRandomValues(new Uint8Array(32)));
     const signature = await signTypedDataAsync({

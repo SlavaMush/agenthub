@@ -27,7 +27,7 @@ export function AgentsTab() {
   const params = useSearchParams();
   const { data, error, isLoading } = useQuery({
     queryKey: ["agents"],
-    queryFn: fetchAgents,
+    queryFn: () => fetchAgents(),
     refetchInterval: 12_000,
     retry: 1,
   });

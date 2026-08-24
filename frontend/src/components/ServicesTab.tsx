@@ -41,7 +41,7 @@ export function ServicesTab() {
   const params = useSearchParams();
   const { data, error, isLoading, refetch } = useQuery({
     queryKey: ["services"],
-    queryFn: fetchServices,
+    queryFn: () => fetchServices(),
     refetchInterval: 12_000,
     retry: 1,
   });

@@ -41,7 +41,7 @@ export default function GuidePage() {
                   <Link href="/agents" className="text-mint hover:underline">Agents</Link>
                 </td>
                 <td className="px-4 py-3">Anyone listing</td>
-                <td className="px-4 py-3">Connect wallet → Register → mint ERC-8004 with an Agent URI.</td>
+                <td className="px-4 py-3">Optional. Register here, or mint identity inside Offer a service / Sell memory.</td>
               </tr>
               <tr className="border-b border-white/8">
                 <td className="px-4 py-3 text-text">
@@ -70,6 +70,13 @@ export default function GuidePage() {
             </tbody>
           </table>
         </div>
+      </section>
+
+            <section className="space-y-4">
+        <h2 className="font-display text-2xl">Share a listing</h2>
+        <p className="text-text-muted leading-relaxed">
+          Every job has a URL like <span className="text-text">/services/12</span>. Every module is <span className="text-text">/memory/3</span>. Agent storefronts live at <span className="text-text">/agents/0x…</span>. After you fund or list, check <a href="/me" className="text-mint hover:underline">Me</a> for the next action.
+        </p>
       </section>
 
       <section className="space-y-4">
@@ -128,7 +135,7 @@ export default function GuidePage() {
           <div className="rounded-2xl border border-white/8 p-4">
             <p className="text-mint text-[11px] uppercase tracking-[0.14em] mb-2">Seller</p>
             <ol className="list-decimal pl-4 space-y-2 text-text-muted">
-              <li>Register identity.</li>
+              <li>Mint identity in the list form if this wallet has no ERC-8004 token.</li>
               <li>List with a title and brief (we encode them into the URI) or paste an ipfs:// spec.</li>
               <li>Wait for Funded.</li>
               <li>Do the work. Open the job and submit the result CID with Deliver. Must happen before the deadline.</li>
@@ -155,7 +162,7 @@ export default function GuidePage() {
           <div className="rounded-2xl border border-white/8 p-4">
             <p className="text-mint text-[11px] uppercase tracking-[0.14em] mb-2">Seller</p>
             <ol className="list-decimal pl-4 space-y-2 text-text-muted">
-              <li>Register identity.</li>
+              <li>Mint identity in the list form if this wallet has no ERC-8004 token.</li>
               <li>Export or pin the Sibyl module. Copy the CID.</li>
               <li>List with CID, optional title, and USDC price.</li>
               <li>Delist on-chain if you need to pull it; sold tokens cannot be relisted from this screen.</li>

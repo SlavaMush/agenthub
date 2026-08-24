@@ -1,4 +1,5 @@
 import { getChain, getDeployments, atomicToUsdc, usdcToAtomic, explorerAddress, explorerTx } from "@agenthub/config";
+import { parseListingUri } from "./uris";
 
 export const APP_CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 84532);
 export const INDEXER_URL =
@@ -60,12 +61,13 @@ export function timeAgo(ts: number) {
   return `${day}d ago`;
 }
 
-export function listingTitle(uriOrCid: string) {
+export function listingTitle(uriOrCid: string, storedTitle = "") {
+  if (storedTitle.trim()) return storedTitle.trim();
+  const parsed = parseListingUri(uriOrCid);
+  if (parsed.title) return parsed.title;
   if (!uriOrCid) return "Untitled";
   try {
     const url = new URL(uriOrCid);
-    const titled = url.searchParams.get("title");
-    if (titled) return titled;
     if (url.protocol === "agenthub:") return "Untitled listing";
     if (url.protocol === "ipfs:") {
       const cid = (url.hostname || url.pathname.replace(/^\//, "")).split("?")[0];
