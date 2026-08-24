@@ -31,6 +31,13 @@ export default function GuidePage() {
             <tbody className="text-text-muted">
               <tr className="border-b border-white/8">
                 <td className="px-4 py-3 text-text">
+                  <Link href="/me" className="text-mint hover:underline">Me</Link>
+                </td>
+                <td className="px-4 py-3">Seller or buyer</td>
+                <td className="px-4 py-3">Inbox of jobs you listed or funded, and memory you listed or bought. Deliver, confirm, refund, freeze, or delist here.</td>
+              </tr>
+              <tr className="border-b border-white/8">
+                <td className="px-4 py-3 text-text">
                   <Link href="/agents" className="text-mint hover:underline">Agents</Link>
                 </td>
                 <td className="px-4 py-3">Anyone listing</td>
