@@ -1,7 +1,9 @@
 import { getChain, getDeployments, atomicToUsdc, usdcToAtomic, explorerAddress, explorerTx } from "@agenthub/config";
 
 export const APP_CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 84532);
-export const INDEXER_URL = process.env.NEXT_PUBLIC_INDEXER_URL || "http://localhost:4001";
+export const INDEXER_URL =
+  process.env.NEXT_PUBLIC_INDEXER_URL ||
+  (typeof window === "undefined" ? "http://127.0.0.1:4001" : "/catalog");
 
 export const chain = getChain(APP_CHAIN_ID);
 const deployed = getDeployments(APP_CHAIN_ID);

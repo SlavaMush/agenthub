@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root,
   },
+  async rewrites() {
+    return [
+      {
+        source: "/catalog/:path*",
+        destination: `${process.env.INDEXER_ORIGIN || "http://127.0.0.1:4001"}/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;

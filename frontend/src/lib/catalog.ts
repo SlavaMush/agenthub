@@ -50,7 +50,7 @@ export type CatalogStats = {
 };
 
 async function getJson<T>(path: string): Promise<T> {
-  const res = await fetch(`${INDEXER_URL}${path}`, { cache: "no-store" });
+  const res = await fetch(`${INDEXER_URL}${path}`, { cache: "no-store", signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`Indexer ${path} failed (${res.status})`);
   return res.json() as Promise<T>;
 }
