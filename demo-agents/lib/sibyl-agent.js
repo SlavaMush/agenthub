@@ -7,91 +7,57 @@
 // 6. $SIBYL Token
 
 import { WebSocket } from 'ws';
-import { createPublicClient, http, createWalletClient, parseEther, formatEther } from 'viem';
+import { createPublicClient, createWalletClient, http, formatEther } from 'viem';
 import { privateKeyToAccount } from 'viem/accounts';
-import { baseSepolia } from 'viem/chains';
+import { base, baseSepolia } from 'viem/chains';
 import dotenv from 'dotenv';
+import {
+  getChain,
+  getDeployments,
+  usdcAbi,
+  erc8004IdentityAbi,
+  isRegistered,
+  memoryMarketAbi,
+  serviceEscrowAbi,
+  usdcToAtomic,
+  RECEIVE_WITH_AUTHORIZATION_TYPES,
+  X402,
+} from '../../packages/config/index.js';
 
 dotenv.config();
 
-// SIBYL Contract Addresses (Base Sepolia)
+const chainId = Number(process.env.CHAIN_ID || 84532);
+const chain = getChain(chainId);
+const deployments = getDeployments(chainId);
+const viemChain = chainId === 8453 ? base : baseSepolia;
+const rpcUrl = process.env.RPC_URL || process.env.BASE_SEPOLIA_RPC || chain.rpcUrls[0];
+
 const CONTRACTS = {
-  ERC8004_REGISTRY: '0x8004A169FB4a3325136EB29fA0ceB6D2e539a432',
-  ERC8004_REPUTATION: '0x8004BAa17C55a88189AE136b182e5fdA19dE9b63',
-  SIBYL_TOKEN: '0x797f214a2CD64a4963A91Fa21c8C55Ec3EBa4714',
-  SIBYL_STAKING: '0x6151AA0689576E8F8D218f4DC7F6A4Ec1533d44d',
-  USDC: '0x036CbD53842c5426634e7929541eC2318f3dCF7e',
-  AGENT_HUB: process.env.AGENT_HUB_ADDRESS || '',
-  MEMORY_NFT: process.env.MEMORY_NFT_ADDRESS || '',
-  SERVICE_LISTING: process.env.SERVICE_LISTING_ADDRESS || '',
-  REPUTATION_ORACLE: process.env.REPUTATION_ORACLE_ADDRESS || '',
-  DISPUTE: process.env.DISPUTE_ADDRESS || '',
+  USDC: chain.usdc,
+  IDENTITY_REGISTRY: chain.identityRegistry,
+  REPUTATION_REGISTRY: chain.reputationRegistry,
+  AGENT_HUB: process.env.AGENT_HUB_ADDRESS || deployments.agentHub,
+  MEMORY_MARKET: process.env.MEMORY_MARKET_ADDRESS || deployments.memoryMarket,
+  SERVICE_ESCROW: process.env.SERVICE_ESCROW_ADDRESS || deployments.serviceEscrow,
+  SIBYL_TOKEN: process.env.SIBYL_TOKEN || '0x797f214a2CD64a4963A91Fa21c8C55Ec3EBa4714',
+  SIBYL_STAKING: process.env.SIBYL_STAKING || '0x6151AA0689576E8F8D218f4DC7F6A4Ec1533d44d',
 };
 
-// ABIs
 const ERC20_ABI = [
   { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { name: 'transfer', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'to', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] },
   { name: 'approve', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'spender', type: 'address' }, { name: 'value', type: 'uint256' }], outputs: [{ type: 'bool' }] },
   { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [{ name: 'owner', type: 'address' }, { name: 'spender', type: 'address' }], outputs: [{ type: 'uint256' }] },
 ];
 
-const ERC8004_REGISTRY_ABI = [
-  { name: 'isRegistered', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'bool' }] },
-  { name: 'register', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'metadataURI', type: 'string' }], outputs: [] },
-  { name: 'getMetadata', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ name: 'metadataURI', type: 'string' }, { name: 'registeredAt', type: 'uint256' }] },
-];
-
-const REPUTATION_ABI = [
-  { name: 'getScore', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { name: 'getTier', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'uint8' }] },
-  { name: 'submitReview', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'subject', type: 'address' }, { name: 'rating', type: 'uint8' }, { name: 'comment', type: 'string' }], outputs: [] },
-];
-
 const SIBYL_STAKING_ABI = [
   { name: 'stake', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
-  { name: 'unstake', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'amount', type: 'uint256' }], outputs: [] },
   { name: 'getStakedAmount', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint256' }] },
   { name: 'getTier', type: 'function', stateMutability: 'view', inputs: [{ name: 'account', type: 'address' }], outputs: [{ type: 'uint8' }] },
 ];
 
-const MEMORY_NFT_ABI = [
-  { name: 'mintMemoryModule', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'cid', type: 'string' },
-    { name: 'validationHash', type: 'bytes32' },
-    { name: 'schemaVersion', type: 'uint8' },
-    { name: 'moduleType', type: 'uint8' },
-    { name: 'title', type: 'string' },
-    { name: 'description', type: 'string' },
-    { name: 'priceUSDC', type: 'uint256' }
-  ], outputs: [{ type: 'uint256' }] },
-  { name: 'buyMemoryModule', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [] },
-];
-
-const SERVICE_LISTING_ABI = [
-  { name: 'listService', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'title', type: 'string' },
-    { name: 'description', type: 'string' },
-    { name: 'category', type: 'uint8' },
-    { name: 'priceUSDC', type: 'uint256' },
-    { name: 'minBidUSDC', type: 'uint256' },
-    { name: 'durationHours', type: 'uint256' }
-  ], outputs: [{ type: 'uint256' }] },
-  { name: 'placeBid', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'listingId', type: 'uint256' }, { name: 'amountUSDC', type: 'uint256' }], outputs: [] },
-  { name: 'buyNow', type: 'function', stateMutability: 'nonpayable', inputs: [{ name: 'listingId', type: 'uint256' }], outputs: [] },
-];
-
-const REPUTATION_ORACLE_ABI = [
-  { name: 'computeScore', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'uint256' }, { type: 'uint8' }] },
-  { name: 'x402Revenue30d', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'uint256' }] },
-  { name: 'talosPnl30d', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'int256' }] },
-  { name: 'memoryQualityScore', type: 'function', stateMutability: 'view', inputs: [{ name: 'agent', type: 'address' }], outputs: [{ type: 'uint256' }] },
-];
-
-// RPC Client
 const rpcClient = createPublicClient({
-  chain: baseSepolia,
-  transport: http(process.env.BASE_SEPOLIA_RPC || 'https://sepolia.base.org')
+  chain: viemChain,
+  transport: http(rpcUrl),
 });
 
 export class SibylAgent {
@@ -100,7 +66,7 @@ export class SibylAgent {
     this.description = config.description || '';
     this.privateKey = config.privateKey || process.env.AGENT_PRIVATE_KEY;
     this.account = this.privateKey ? privateKeyToAccount(this.privateKey) : null;
-    this.walletClient = this.account ? createWalletClient({ account: this.account, chain: baseSepolia, transport: http(process.env.BASE_SEPOLIA_RPC) }) : null;
+    this.walletClient = this.account ? createWalletClient({ account: this.account, chain: viemChain, transport: http(rpcUrl) }) : null;
     
     // Agent identity
     this.address = this.account?.address || config.address;
@@ -299,32 +265,50 @@ export class SibylAgent {
   
   async payX402(endpoint, amountUSDC = 1) {
     console.log(`[${this.name}] x402 Payment: ${amountUSDC} USDC for ${endpoint}`);
-    
-    if (!this.walletClient) {
-      throw new Error('No wallet configured for payments');
-    }
-    
-    // In production: create EIP-2612 permit, submit to backend
-    // For demo, simulate
-    const permit = {
-      owner: this.address,
-      spender: CONTRACTS.AGENT_HUB,
-      value: BigInt(Math.floor(amountUSDC * 1e6)),
-      nonce: 0,
-      deadline: BigInt(Math.floor(Date.now() / 1000) + 3600),
-      v: 27,
-      r: '0x' + '0'.repeat(64),
-      s: '0x' + '0'.repeat(64)
+    if (!this.walletClient) throw new Error('No wallet configured for payments');
+
+    const reqs = await fetch(`${this.apiBase}/api/x402/requirements?resource=${encodeURIComponent(endpoint)}`).then((r) => r.json());
+    const accept = reqs.accepts?.[0];
+    if (!accept?.payTo) throw new Error('x402 payTo is not configured on the backend');
+
+    const value = usdcToAtomic(amountUSDC);
+    const nonce = `0x${Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('hex')}`;
+    const message = {
+      from: this.address,
+      to: accept.payTo,
+      value,
+      validAfter: 0n,
+      validBefore: BigInt(Math.floor(Date.now() / 1000) + 3600),
+      nonce,
     };
-    
-    const payment = { permit, amount: amountUSDC * 1e6, asset: 'USDC', network: 'base-sepolia', payTo: CONTRACTS.AGENT_HUB };
-    
+    const signature = await this.walletClient.signTypedData({
+      account: this.account,
+      domain: {
+        name: accept.extra.name,
+        version: accept.extra.version,
+        chainId: chain.chainId,
+        verifyingContract: accept.asset,
+      },
+      types: RECEIVE_WITH_AUTHORIZATION_TYPES,
+      primaryType: 'ReceiveWithAuthorization',
+      message,
+    });
+    const payment = {
+      scheme: X402.scheme,
+      network: accept.network,
+      payload: {
+        ...message,
+        value: value.toString(),
+        validAfter: '0',
+        validBefore: message.validBefore.toString(),
+        signature,
+      },
+    };
     const response = await fetch(`${this.apiBase}/api/x402/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ payment })
+      body: JSON.stringify({ payment }),
     });
-    
     return response.json();
   }
   
@@ -374,92 +358,99 @@ export class SibylAgent {
   // ==================== 5. ERC-8004 IDENTITY (#20880) ====================
   
   async registerERC8004(metadataURI) {
-    console.log(`[${this.name}] Registering on ERC-8004 (#20880)`);
-    
+    console.log(`[${this.name}] Registering on ERC-8004 identity registry`);
     if (!this.walletClient) throw new Error('Wallet required');
-    
     const hash = await this.walletClient.writeContract({
-      address: CONTRACTS.ERC8004_REGISTRY,
-      abi: ERC8004_REGISTRY_ABI,
+      address: CONTRACTS.IDENTITY_REGISTRY,
+      abi: erc8004IdentityAbi,
       functionName: 'register',
-      args: [metadataURI]
+      args: [metadataURI],
     });
-    
     this.erc8004Registered = true;
     console.log(`[${this.name}] ERC-8004 registered: ${hash}`);
     return hash;
   }
   
   async checkERC8004Registration(address) {
-    const registered = await rpcClient.readContract({
-      address: CONTRACTS.ERC8004_REGISTRY,
-      abi: ERC8004_REGISTRY_ABI,
-      functionName: 'isRegistered',
-      args: [address]
-    });
-    return registered;
+    try {
+      const balance = await rpcClient.readContract({
+        address: CONTRACTS.IDENTITY_REGISTRY,
+        abi: erc8004IdentityAbi,
+        functionName: 'balanceOf',
+        args: [address],
+      });
+      return isRegistered(balance);
+    } catch (err) {
+      console.log(`[${this.name}] ERC-8004 lookup skipped: ${err.message}`);
+      return false;
+    }
   }
   
   async getReputationOnChain(address) {
-    const [score, tier] = await rpcClient.readContract({
-      address: CONTRACTS.ERC8004_REPUTATION,
-      abi: REPUTATION_ABI,
-      functionName: 'getScore',
-      args: [address]
-    });
-    
-    this.reputationScore = Number(score);
-    this.reputationTier = Number(tier);
-    
-    return { score: this.reputationScore, tier: this.reputationTier };
+    try {
+      const balance = await rpcClient.readContract({
+        address: CONTRACTS.IDENTITY_REGISTRY,
+        abi: erc8004IdentityAbi,
+        functionName: 'balanceOf',
+        args: [address],
+      });
+      this.erc8004Registered = isRegistered(balance);
+      this.reputationTier = this.erc8004Registered ? 1 : 0;
+      return { score: this.reputationScore, tier: this.reputationTier };
+    } catch {
+      return { score: 0, tier: 0 };
+    }
   }
   
   async submitReview(subject, rating, comment) {
-    if (!this.walletClient) throw new Error('Wallet required');
-    
-    const hash = await this.walletClient.writeContract({
-      address: CONTRACTS.ERC8004_REPUTATION,
-      abi: REPUTATION_ABI,
-      functionName: 'submitReview',
-      args: [subject, rating, comment]
-    });
-    
-    console.log(`[${this.name}] Submitted review for ${subject}: ${rating}/5`);
-    return hash;
+    console.log(`[${this.name}] Review for ${subject}: ${rating}/5 — ${comment} (off-chain until reputation registry is wired)`);
+    return null;
   }
   
   // ==================== 6. $SIBYL TOKEN ====================
   
   async getSibylBalance() {
-    const balance = await rpcClient.readContract({
-      address: CONTRACTS.SIBYL_TOKEN,
-      abi: ERC20_ABI,
-      functionName: 'balanceOf',
-      args: [this.address]
-    });
-    this.sibylBalance = Number(balance);
+    try {
+      const balance = await rpcClient.readContract({
+        address: CONTRACTS.SIBYL_TOKEN,
+        abi: ERC20_ABI,
+        functionName: 'balanceOf',
+        args: [this.address],
+      });
+      this.sibylBalance = Number(balance);
+    } catch {
+      this.sibylBalance = 0;
+    }
     return this.sibylBalance;
   }
   
   async getStakedSibyl() {
-    const staked = await rpcClient.readContract({
-      address: CONTRACTS.SIBYL_STAKING,
-      abi: SIBYL_STAKING_ABI,
-      functionName: 'getStakedAmount',
-      args: [this.address]
-    });
-    this.sibylStaked = Number(staked);
+    try {
+      const staked = await rpcClient.readContract({
+        address: CONTRACTS.SIBYL_STAKING,
+        abi: SIBYL_STAKING_ABI,
+        functionName: 'getStakedAmount',
+        args: [this.address],
+      });
+      this.sibylStaked = Number(staked);
+    } catch {
+      this.sibylStaked = 0;
+    }
     return this.sibylStaked;
   }
   
   async getSibylTier() {
-    const tier = await rpcClient.readContract({
-      address: CONTRACTS.SIBYL_STAKING,
-      abi: SIBYL_STAKING_ABI,
-      functionName: 'getTier',
-      args: [this.address]
-    });
-    this.sibylTier = Number(tier);
+    try {
+      const tier = await rpcClient.readContract({
+        address: CONTRACTS.SIBYL_STAKING,
+        abi: SIBYL_STAKING_ABI,
+        functionName: 'getTier',
+        args: [this.address],
+      });
+      this.sibylTier = Number(tier);
+    } catch {
+      this.sibylTier = 0;
+    }
     return this.sibylTier;
   }
   
@@ -481,89 +472,93 @@ export class SibylAgent {
   
   async listMemoryModule(cid, title, description, priceUSDC, moduleType = 0) {
     console.log(`[${this.name}] Listing memory module: ${title}`);
-    
     if (!this.walletClient) throw new Error('Wallet required');
-    
-    const validationHash = `0x${Buffer.from(cid + '1').toString('hex').padStart(64, '0')}`;
-    
-    const tokenId = await this.walletClient.writeContract({
-      address: CONTRACTS.MEMORY_NFT,
-      abi: MEMORY_NFT_ABI,
-      functionName: 'mintMemoryModule',
-      args: [cid, validationHash, 1, moduleType, title, description, BigInt(Math.floor(priceUSDC * 1e6))]
+    if (!CONTRACTS.MEMORY_MARKET) {
+      console.log(`[${this.name}] Memory market not deployed — skip list`);
+      return null;
+    }
+    const uri = `ipfs://${cid}?title=${encodeURIComponent(title)}&type=${moduleType}`;
+    const hash = await this.walletClient.writeContract({
+      address: CONTRACTS.MEMORY_MARKET,
+      abi: memoryMarketAbi,
+      functionName: 'list',
+      args: [cid, uri, usdcToAtomic(priceUSDC)],
     });
-    
-    console.log(`[${this.name}] Memory module minted: ${tokenId}`);
-    return tokenId;
+    console.log(`[${this.name}] Memory listed: ${hash}`);
+    return hash;
   }
   
-  async buyMemoryModule(tokenId) {
+  async buyMemoryModule(tokenId, priceUSDC) {
     console.log(`[${this.name}] Buying memory module: ${tokenId}`);
-    
     if (!this.walletClient) throw new Error('Wallet required');
-    
-    const hash = await this.walletClient.writeContract({
-      address: CONTRACTS.MEMORY_NFT,
-      abi: MEMORY_NFT_ABI,
-      functionName: 'buyMemoryModule',
-      args: [BigInt(tokenId)]
+    if (!CONTRACTS.MEMORY_MARKET) throw new Error('Memory market not deployed');
+    const amount = usdcToAtomic(priceUSDC);
+    await this.walletClient.writeContract({
+      address: CONTRACTS.USDC,
+      abi: usdcAbi,
+      functionName: 'approve',
+      args: [CONTRACTS.MEMORY_MARKET, amount],
     });
-    
-    return hash;
+    return this.walletClient.writeContract({
+      address: CONTRACTS.MEMORY_MARKET,
+      abi: memoryMarketAbi,
+      functionName: 'buy',
+      args: [BigInt(tokenId)],
+    });
   }
   
   async listService(title, description, category, priceUSDC = 0, minBidUSDC = 0, durationHours = 24) {
     console.log(`[${this.name}] Listing service: ${title}`);
-    
     if (!this.walletClient) throw new Error('Wallet required');
-    
-    const categoryMap = { AUDIT: 0, RESEARCH: 1, CONTENT: 2, DEBUG: 3, STRATEGY: 4, MEMORY_BUILD: 5 };
-    
-    const listingId = await this.walletClient.writeContract({
-      address: CONTRACTS.SERVICE_LISTING,
-      abi: SERVICE_LISTING_ABI,
-      functionName: 'listService',
-      args: [title, description, categoryMap[category] || 0, BigInt(Math.floor(priceUSDC * 1e6)), BigInt(Math.floor(minBidUSDC * 1e6)), BigInt(durationHours)]
-    });
-    
-    console.log(`[${this.name}] Service listed: ${listingId}`);
-    return listingId;
-  }
-  
-  async placeBid(listingId, amountUSDC) {
-    console.log(`[${this.name}] Placing bid on ${listingId}: ${amountUSDC} USDC`);
-    
-    if (!this.walletClient) throw new Error('Wallet required');
-    
+    if (!CONTRACTS.SERVICE_ESCROW) {
+      console.log(`[${this.name}] Service escrow not deployed — skip list`);
+      return null;
+    }
+    const uri = `agenthub://service?title=${encodeURIComponent(title)}&category=${category}&brief=${encodeURIComponent(description)}`;
     const hash = await this.walletClient.writeContract({
-      address: CONTRACTS.SERVICE_LISTING,
-      abi: SERVICE_LISTING_ABI,
-      functionName: 'placeBid',
-      args: [BigInt(listingId), BigInt(Math.floor(amountUSDC * 1e6))]
+      address: CONTRACTS.SERVICE_ESCROW,
+      abi: serviceEscrowAbi,
+      functionName: 'list',
+      args: [uri, usdcToAtomic(priceUSDC || minBidUSDC || 1), BigInt(Math.round(Number(durationHours) * 3600))],
     });
-    
+    console.log(`[${this.name}] Service listed: ${hash}`);
     return hash;
   }
   
-  // Reputation Oracle
-  async getReputationScore() {
-    const [score, tier] = await rpcClient.readContract({
-      address: CONTRACTS.REPUTATION_ORACLE,
-      abi: REPUTATION_ORACLE_ABI,
-      functionName: 'computeScore',
-      args: [this.address]
+  async placeBid(listingId, amountUSDC) {
+    console.log(`[${this.name}] Funding job ${listingId}: ${amountUSDC} USDC`);
+    if (!this.walletClient) throw new Error('Wallet required');
+    if (!CONTRACTS.SERVICE_ESCROW) throw new Error('Service escrow not deployed');
+    const amount = usdcToAtomic(amountUSDC);
+    await this.walletClient.writeContract({
+      address: CONTRACTS.USDC,
+      abi: usdcAbi,
+      functionName: 'approve',
+      args: [CONTRACTS.SERVICE_ESCROW, amount],
     });
-    
-    return { score: Number(score), tier: Number(tier) };
+    return this.walletClient.writeContract({
+      address: CONTRACTS.SERVICE_ESCROW,
+      abi: serviceEscrowAbi,
+      functionName: 'fund',
+      args: [BigInt(listingId)],
+    });
   }
   
-  // Utility
+  async getReputationScore() {
+    try {
+      const registered = await this.checkERC8004Registration(this.address);
+      return { score: registered ? this.reputationScore || 1 : 0, tier: registered ? 1 : 0 };
+    } catch {
+      return { score: 0, tier: 0 };
+    }
+  }
+  
   async getUSDCBalance() {
     const balance = await rpcClient.readContract({
       address: CONTRACTS.USDC,
-      abi: ERC20_ABI,
+      abi: usdcAbi,
       functionName: 'balanceOf',
-      args: [this.address]
+      args: [this.address],
     });
     return Number(balance) / 1e6;
   }
