@@ -1,15 +1,16 @@
 "use client";
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
-import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { fetchAgents } from "@/lib/catalog";
-import { addressUrl, formatUsdc, shortAddr, timeAgo, txUrl } from "@/lib/app-config";
+import { formatUsdc, timeAgo, txUrl } from "@/lib/app-config";
 import { matchesQuery } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
+import { AgentName } from "@/components/AgentName";
+import { StoryRail } from "@/components/StoryRail";
 import { buildAgentRegistration, buildAgentUri, isHostedUri } from "@/lib/uris";
 import {
   Button,
@@ -83,9 +84,29 @@ export function AgentsTab() {
 
       <HowItWorks
         steps={[
-          { title: "Mint a handle", body: "Register mints an ERC-8004 NFT to this wallet. Listing services or memory requires that NFT." },
-          { title: "Point the Agent URI", body: "The URI is a JSON profile: name, what you do, and how to call you. Embed it as a data: URI, or paste ipfs:// or https://." },
-          { title: "Show up in the book", body: "The indexer attributes volume to this wallet after you trade. Identity is a portable agent record, not KYC." },
+          {
+            title: "Mint a handle",
+            body: "Register mints an ERC-8004 NFT to this wallet. Listing services or memory requires that NFT — you can also mint inside Offer a gig / Sell a CID.",
+            href: "/guide#story-identity",
+          },
+          {
+            title: "Point the Agent URI",
+            body: "The URI is a JSON profile: name, what you do, and how to call you. Embed it as a data: URI, or paste ipfs:// or https://.",
+            href: "/guide#agent-uri",
+          },
+          {
+            title: "Open your shop",
+            body: "Your storefront shows passport name, open jobs, and memory for sale. Share /agents/0x…",
+            href: "/guide#story-share",
+          },
+        ]}
+      />
+
+      <StoryRail
+        items={[
+          { href: "/guide#story-identity", title: "Get an identity" },
+          { href: "/guide#story-get-hired", title: "Get hired" },
+          { href: "/guide#story-share", title: "Share a shop" },
         ]}
       />
 
@@ -109,9 +130,7 @@ export function AgentsTab() {
                 <Identicon address={agent.address} size={48} />
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <Link href={`/agents/${agent.address}`} className="font-mono text-lg hover:text-mint">
-                      {shortAddr(agent.address)}
-                    </Link>
+                    <AgentName address={agent.address} className="text-lg font-medium text-mint hover:underline" />
                     {agent.verified && (
                       <span className="text-[10px] uppercase tracking-[0.14em] text-mint border border-mint/30 rounded-full px-2 py-0.5">
                         Verified

@@ -1,158 +1,127 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { fetchMemory, fetchServices, type MemoryListing, type ServiceListing } from "@/lib/catalog";
 import { listingTitle, shortAddr, txUrl } from "@/lib/app-config";
+import type { MemoryListing, ServiceListing } from "@/lib/catalog";
+import { needLabel, windowLabel } from "@/lib/jobUi";
+import { useMyBook } from "@/hooks/useMyBook";
 import { useMarketplace } from "@/lib/useMarketplace";
-import { useToast } from "@/components/Toast";
 import { ConnectToAct } from "@/components/ConnectToAct";
-import { Badge, Button, Field, MarketHeader, Notice, Price, inputClass } from "@/components/ui";
+import { AgentName } from "@/components/AgentName";
+import { ServiceActions } from "@/components/ServiceActions";
+import { StoryRail } from "@/components/StoryRail";
+import { Badge, Button, MarketHeader, Notice, Price } from "@/components/ui";
+import { useToast } from "@/components/Toast";
 
 export function MeTab() {
+  const book = useMyBook();
   const market = useMarketplace();
   const toast = useToast();
-  const address = market.address;
-  const enabled = Boolean(address);
 
-  const listedJobs = useQuery({
-    queryKey: ["me", "jobs-listed", address],
-    queryFn: () => fetchServices({ seller: address, limit: 200 }),
-    enabled,
-    refetchInterval: 12_000,
-  });
-  const hiredJobs = useQuery({
-    queryKey: ["me", "jobs-hired", address],
-    queryFn: () => fetchServices({ buyer: address, limit: 200 }),
-    enabled,
-    refetchInterval: 12_000,
-  });
-  const listedMemory = useQuery({
-    queryKey: ["me", "memory-listed", address],
-    queryFn: () => fetchMemory({ seller: address, limit: 200 }),
-    enabled,
-    refetchInterval: 12_000,
-  });
-  const boughtMemory = useQuery({
-    queryKey: ["me", "memory-bought", address],
-    queryFn: () => fetchMemory({ buyer: address, limit: 200 }),
-    enabled,
-    refetchInterval: 12_000,
-  });
-
-  async function run(title: string, fn: () => Promise<`0x${string}`>) {
-    try {
-      const hash = await fn();
-      toast.push({ tone: "ok", title, href: txUrl(hash) });
-      listedJobs.refetch();
-      hiredJobs.refetch();
-      listedMemory.refetch();
-      boughtMemory.refetch();
-    } catch (err) {
-      toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Transaction failed" });
-    }
-  }
-
-  if (!market.isConnected) {
+  if (!book.isConnected) {
     return (
       <div className="space-y-6 max-w-lg">
-        <MarketHeader kicker="Inbox" title="Your jobs" description="Deliver, confirm, refund, and delist from one place. Connect a wallet to load this book." />
+        <MarketHeader
+          kicker="Inbox"
+          title="What needs you"
+          description="Deliver, confirm, refund, freeze, and delist from one place. Connect a wallet to load this book."
+        />
         <ConnectToAct label="Connect to open inbox" />
+        <StoryRail items={[{ href: "/guide#story-inbox", title: "Inbox story" }]} />
       </div>
     );
   }
-
-  const error = listedJobs.error || hiredJobs.error || listedMemory.error || boughtMemory.error;
 
   return (
     <div className="space-y-10">
       <MarketHeader
         kicker="Inbox"
-        title="Your jobs"
-        description="Next actions for jobs you listed or funded, and memory you listed or bought."
+        title="What needs you"
+        description="Actions first. Funded, delivered, and frozen jobs you are a party to — then in-progress and done."
       />
-      {error && <Notice tone="warn">Catalog unreachable. Start the indexer, then refresh.</Notice>}
+      <StoryRail
+        items={[
+          { href: "/guide#story-deliver", title: "Deliver" },
+          { href: "/guide#story-confirm", title: "Confirm" },
+          { href: "/guide#story-refund", title: "Refund" },
+          { href: "/guide#story-freeze", title: "Freeze" },
+          { href: "/guide#story-delist", title: "Delist" },
+        ]}
+      />
+      {book.error && <Notice tone="warn">Catalog unreachable. Start the indexer, then refresh.</Notice>}
 
-      <InboxSection title="Jobs you listed" empty="You have not listed a service yet.">
-        {(listedJobs.data?.listings ?? []).map((job) => (
-          <JobRow
-            key={`listed-${job.id}`}
-            job={job}
-            role="seller"
-            pending={market.isPending}
-            onDeliver={(cid) => run(`Job #${job.id} delivered.`, () => market.deliverService(job.id, cid))}
-            onFreeze={() => run(`Job #${job.id} frozen.`, () => market.freezeService(job.id))}
-          />
+      <InboxSection
+        title="Needs you"
+        empty="Nothing needs you right now. In-progress jobs are below."
+        count={book.needs.length}
+      >
+        {book.needs.map(({ job, need }) => (
+          <JobCard key={`need-${job.id}`} job={job} hint={needLabel(need)} onSettled={book.refetchAll} />
         ))}
       </InboxSection>
 
-      <InboxSection title="Jobs you funded" empty="You have not funded a job yet.">
-        {(hiredJobs.data?.listings ?? []).map((job) => (
-          <JobRow
-            key={`hired-${job.id}`}
-            job={job}
-            role="buyer"
-            pending={market.isPending}
-            onConfirm={() => run(`Job #${job.id} confirmed.`, () => market.confirmService(job.id))}
-            onRefund={() => run(`Job #${job.id} refunded.`, () => market.refundService(job.id))}
-            onAutoRelease={() => run(`Job #${job.id} released.`, () => market.autoReleaseService(job.id))}
-            onFreeze={() => run(`Job #${job.id} frozen.`, () => market.freezeService(job.id))}
-          />
+      <InboxSection title="In progress" empty="No open jobs." count={book.inProgress.length}>
+        {book.inProgress.map((job) => (
+          <JobCard key={`prog-${job.id}`} job={job} onSettled={book.refetchAll} />
         ))}
       </InboxSection>
 
-      <InboxSection title="Memory you listed" empty="You have not listed a module yet.">
-        {(listedMemory.data?.modules ?? []).map((item) => (
+      <InboxSection title="Done" empty="No completed or refunded jobs yet." count={book.done.length}>
+        {book.done.map((job) => (
+          <JobCard key={`done-${job.id}`} job={job} onSettled={book.refetchAll} />
+        ))}
+      </InboxSection>
+
+      <InboxSection title="Memory for sale" empty="You have no modules listed." count={book.memoryOpen.length}>
+        {book.memoryOpen.map((item) => (
           <MemoryRow
-            key={`listed-m-${item.id}`}
+            key={`open-m-${item.id}`}
             item={item}
             pending={market.isPending}
-            onDelist={item.active && !item.sold ? () => run(`Memory #${item.id} delisted.`, () => market.delistMemory(item.id)) : undefined}
+            onDelist={() =>
+              market.delistMemory(item.id).then((hash) => {
+                toast.push({ tone: "ok", title: `Memory #${item.id} delisted.`, href: txUrl(hash) });
+                book.refetchAll();
+              }).catch((err) => {
+                toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Delist failed" });
+              })
+            }
           />
         ))}
       </InboxSection>
 
-      <InboxSection title="Memory you bought" empty="You have not bought a module yet.">
-        {(boughtMemory.data?.modules ?? []).map((item) => (
-          <MemoryRow key={`bought-m-${item.id}`} item={item} owned pending={market.isPending} />
+      <InboxSection title="Memory you own" empty="You have not bought a module yet." count={book.memoryOwned.length}>
+        {book.memoryOwned.map((item) => (
+          <MemoryRow key={`own-m-${item.id}`} item={item} owned />
         ))}
       </InboxSection>
     </div>
   );
 }
 
-function InboxSection({ title, empty, children }: { title: string; empty: string; children: ReactNode }) {
-  const items = useMemo(() => (Array.isArray(children) ? children : [children]).filter(Boolean), [children]);
+function InboxSection({
+  title,
+  empty,
+  count,
+  children,
+}: {
+  title: string;
+  empty: string;
+  count: number;
+  children: ReactNode;
+}) {
   return (
     <section className="space-y-3">
-      <h2 className="font-display text-2xl">{title}</h2>
-      {items.length === 0 ? <p className="text-sm text-text-muted">{empty}</p> : <div className="space-y-3">{children}</div>}
+      <h2 className="font-display text-2xl">
+        {title} {count > 0 && <span className="text-text-muted font-sans text-base">({count})</span>}
+      </h2>
+      {count === 0 ? <p className="text-sm text-text-muted">{empty}</p> : <div className="space-y-3">{children}</div>}
     </section>
   );
 }
 
-function JobRow({
-  job,
-  role,
-  pending,
-  onDeliver,
-  onConfirm,
-  onRefund,
-  onAutoRelease,
-  onFreeze,
-}: {
-  job: ServiceListing;
-  role: "seller" | "buyer";
-  pending: boolean;
-  onDeliver?: (cid: string) => void;
-  onConfirm?: () => void;
-  onRefund?: () => void;
-  onAutoRelease?: () => void;
-  onFreeze?: () => void;
-}) {
-  const [cid, setCid] = useState("");
-  const pastDeadline = job.deadline > 0 && Date.now() / 1000 > job.deadline;
+function JobCard({ job, hint, onSettled }: { job: ServiceListing; hint?: string; onSettled: () => void }) {
   const title = job.title || listingTitle(job.uri);
   return (
     <article className="rounded-3xl border border-white/8 bg-white/[0.02] p-5 space-y-3">
@@ -161,44 +130,26 @@ function JobRow({
           <div className="flex items-center gap-2 mb-1">
             <Badge status={job.status} />
             <span className="font-mono text-[11px] text-text-muted">#{job.id}</span>
+            {hint && <span className="text-[11px] text-mint">{hint}</span>}
           </div>
-          <h3 className="font-semibold"><Link href={`/services/${job.id}`} className="hover:text-mint">{title}</Link></h3>
-          <p className="text-xs text-text-muted font-mono mt-1">
-            {role === "seller" ? `Buyer ${job.buyer ? shortAddr(job.buyer) : "—"}` : `Seller ${shortAddr(job.seller)}`}
+          <h3 className="font-semibold">
+            <Link href={`/services/${job.id}`} className="hover:text-mint">
+              {title}
+            </Link>
+          </h3>
+          <p className="text-xs text-text-muted mt-1">
+            Seller <AgentName address={job.seller} className="text-xs text-mint hover:underline" />
+            {job.buyer ? (
+              <>
+                {" · "}Buyer <span className="font-mono">{shortAddr(job.buyer)}</span>
+              </>
+            ) : null}
           </p>
+          <p className="text-xs text-text-muted mt-1">{windowLabel(job)}</p>
         </div>
         <Price atomic={job.priceUSDC} />
       </div>
-      {job.status === "Funded" && role === "seller" && onDeliver && !pastDeadline && (
-        <div className="flex flex-col sm:flex-row gap-2">
-          <Field label="Result CID">
-            <input value={cid} onChange={(e) => setCid(e.target.value)} placeholder="bafy…" className={inputClass()} />
-          </Field>
-          <Button className="sm:self-end" disabled={pending || !cid.trim()} onClick={() => onDeliver(cid.trim())}>
-            Deliver
-          </Button>
-        </div>
-      )}
-      <div className="flex flex-wrap gap-2">
-        {job.status === "Delivered" && role === "buyer" && onConfirm && (
-          <Button disabled={pending} onClick={onConfirm}>Confirm</Button>
-        )}
-        {job.status === "Delivered" && onAutoRelease && (
-          <Button variant="ghost" disabled={pending} onClick={onAutoRelease}>Auto-release</Button>
-        )}
-        {job.status === "Funded" && role === "buyer" && pastDeadline && onRefund && (
-          <Button disabled={pending} onClick={onRefund}>Refund</Button>
-        )}
-        {job.status === "Frozen" && (
-          <p className="text-xs text-amber-200">Frozen — protocol owner resolves.</p>
-        )}
-        {(job.status === "Funded" || job.status === "Delivered") && onFreeze && (
-          <Button variant="danger" disabled={pending} onClick={onFreeze}>Freeze</Button>
-        )}
-        {job.status === "Listed" && role === "seller" && (
-          <p className="text-xs text-text-muted">Waiting for a buyer to fund.</p>
-        )}
-      </div>
+      <ServiceActions detail={job} onSettled={onSettled} layout="row" />
     </article>
   );
 }
@@ -211,7 +162,7 @@ function MemoryRow({
 }: {
   item: MemoryListing;
   owned?: boolean;
-  pending: boolean;
+  pending?: boolean;
   onDelist?: () => void;
 }) {
   const title = item.title || listingTitle(item.cid);
@@ -222,9 +173,13 @@ function MemoryRow({
           <Badge status={item.sold ? "sold" : "Listed"} />
           <span className="font-mono text-[11px] text-text-muted">#{item.id}</span>
         </div>
-        <h3 className="font-semibold"><Link href={`/memory/${item.id}`} className="hover:text-mint">{title}</Link></h3>
+        <h3 className="font-semibold">
+          <Link href={`/memory/${item.id}`} className="hover:text-mint">
+            {title}
+          </Link>
+        </h3>
         <p className="font-mono text-xs text-text-muted break-all mt-1">{item.cid}</p>
-        {owned && <p className="text-xs text-mint mt-2">You own this NFT. Resolve the CID in your stack.</p>}
+        {owned && <p className="text-xs text-mint mt-2">Token in this wallet. Import the CID into Sibyl.</p>}
       </div>
       <div className="flex items-center gap-3">
         <Price atomic={item.priceUSDC} />

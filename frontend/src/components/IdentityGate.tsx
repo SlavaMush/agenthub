@@ -65,7 +65,10 @@ export function IdentityGate({ children }: { children: ReactNode }) {
         <div className="rounded-2xl border border-mint/20 bg-mint/5 p-3 text-sm">
           <p className="font-medium text-mint mb-1">Mint identity first</p>
           <p className="text-text-muted text-xs leading-relaxed">
-            Listing requires an ERC-8004 NFT on this wallet. Name and a one-line description are enough. You can expand the profile later on Agents.
+            Listing requires an ERC-8004 NFT on this wallet. Name and a one-line description are enough. You can expand the profile later on Agents.{" "}
+            <a href="/guide#story-identity" className="text-mint hover:underline">
+              Identity story
+            </a>
           </p>
         </div>
         <Field label="Name">

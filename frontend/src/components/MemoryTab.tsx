@@ -4,14 +4,16 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { fetchMemory, type MemoryListing } from "@/lib/catalog";
-import { addressUrl, contracts, hasContract, listingTitle, shortAddr, timeAgo, txUrl } from "@/lib/app-config";
-import { matchesQuery, sameAddr, sortListings } from "@/lib/format";
+import { fetchMemory } from "@/lib/catalog";
+import { contracts, hasContract, listingTitle, timeAgo, txUrl } from "@/lib/app-config";
+import { matchesQuery, sortListings } from "@/lib/format";
 import { useMarketplace } from "@/lib/useMarketplace";
 import { useToast } from "@/components/Toast";
 import { HowItWorks } from "@/components/HowItWorks";
-import { ConnectToAct, PayButton, UsdcBalance } from "@/components/ConnectToAct";
+import { ConnectToAct } from "@/components/ConnectToAct";
 import { IdentityGate } from "@/components/IdentityGate";
+import { AgentName } from "@/components/AgentName";
+import { StoryRail } from "@/components/StoryRail";
 import { buildMemoryUri } from "@/lib/uris";
 import {
   Badge,
@@ -30,9 +32,9 @@ import {
 } from "@/components/ui";
 
 const filters = [
-  { id: "all", label: "All" },
   { id: "active", label: "For sale" },
   { id: "sold", label: "Sold" },
+  { id: "all", label: "All" },
 ];
 
 export function MemoryTab() {
@@ -45,11 +47,10 @@ export function MemoryTab() {
   });
   const market = useMarketplace();
   const toast = useToast();
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState("active");
   const [sort, setSort] = useState<"new" | "price-asc" | "price-desc">("new");
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
-  const [detail, setDetail] = useState<MemoryListing | null>(null);
 
   useEffect(() => {
     if (params.get("list") === "1") setOpen(true);
@@ -60,7 +61,7 @@ export function MemoryTab() {
     const filtered = source.filter((item) => {
       if (filter === "active" && (!item.active || item.sold)) return false;
       if (filter === "sold" && !item.sold) return false;
-      return matchesQuery(query, listingTitle(item.cid), item.cid, item.seller, item.id);
+      return matchesQuery(query, item.title, listingTitle(item.cid), item.cid, item.seller, item.id);
     });
     return sortListings(filtered, sort);
   }, [data, filter, query, sort]);
@@ -84,45 +85,44 @@ export function MemoryTab() {
     }
   }
 
-  async function onBuy(item: MemoryListing) {
-    try {
-      const hash = await market.buyMemory(item.id, item.priceUSDC);
-      toast.push({ tone: "ok", title: `Memory #${item.id} purchased.`, href: txUrl(hash) });
-      refetch();
-      setDetail(null);
-    } catch (err) {
-      toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Buy failed" });
-    }
-  }
-
-  async function onDelist(item: MemoryListing) {
-    try {
-      const hash = await market.delistMemory(item.id);
-      toast.push({ tone: "ok", title: `Memory #${item.id} delisted.`, href: txUrl(hash) });
-      refetch();
-      setDetail(null);
-    } catch (err) {
-      toast.push({ tone: "warn", title: err instanceof Error ? err.message : "Delist failed" });
-    }
-  }
-
   return (
     <div className="space-y-6">
       <MarketHeader
         kicker="Trade"
-        title="Memory for sale"
-        description="Buy a Sibyl module as an ERC-721. Circle USDC in, NFT out, in the same transaction. 10% fee."
+        title="Sibyl memory"
+        description="Buy a module as an ERC-721. Circle USDC in, NFT out, same transaction. 10% fee comes out of the sale — not on top."
       >
         <Button variant="ghost" onClick={() => setOpen(true)}>
-          Sell a module
+          Sell a CID
         </Button>
       </MarketHeader>
 
       <HowItWorks
         steps={[
-          { title: "Pin a module", body: "The CID is the Sibyl payload. The chain stores the pointer and a hash, not the bytes." },
-          { title: "List as NFT", body: "Requires ERC-8004. Set a USDC price. Token URI is metadata — default ipfs://CID, optional title." },
-          { title: "Buy transfers the NFT", body: "Buyer pays USDC in the same transaction. 10% fee to treasury. Then resolve the CID in your own stack." },
+          {
+            title: "Open a module",
+            body: "The title is the product. The CID is the payload you will import into Sibyl.",
+            href: "/guide#story-buy-memory",
+          },
+          {
+            title: "Pay USDC, receive NFT",
+            body: "Buy transfers the token in the same transaction. 10% protocol fee from the sale.",
+            href: "/guide#story-buy-memory",
+          },
+          {
+            title: "Import the CID",
+            body: "Resolve the CID in your own stack. The chain stores the pointer, not the bytes.",
+            href: "/guide#story-buy-memory",
+          },
+        ]}
+      />
+
+      <StoryRail
+        items={[
+          { href: "/guide#story-buy-memory", title: "Buy memory" },
+          { href: "/guide#story-sell-memory", title: "Sell a CID" },
+          { href: "/guide#story-delist", title: "Delist" },
+          { href: "/me", title: "What I own" },
         ]}
       />
 
@@ -131,7 +131,7 @@ export function MemoryTab() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search CID or seller"
+          placeholder="Session bridge, CID, seller…"
           className={inputClass("h-10 xl:max-w-xs")}
         />
         <select value={sort} onChange={(e) => setSort(e.target.value as typeof sort)} className={inputClass("h-10 xl:w-44")}>
@@ -147,124 +147,80 @@ export function MemoryTab() {
       {!isLoading && modules.length === 0 && (
         <EmptyState
           kicker="Memory book"
-          title={query || filter !== "all" ? "No modules in this view." : "No modules listed yet."}
-          body="Mint a CID onto MemoryMarket. Requires an ERC-8004 identity."
-          action={<Button onClick={() => setOpen(true)}>List memory</Button>}
+          title={query || filter !== "active" ? "No modules in this view." : "No modules for sale."}
+          body="Mint a CID onto MemoryMarket. Requires an ERC-8004 identity. Sold tokens live under Sold or Me."
+          action={<Button onClick={() => setOpen(true)}>Sell a CID</Button>}
         />
       )}
 
       {modules.length > 0 && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {modules.map((module) => (
-            <article
-              key={module.id}
-              className={`card rounded-3xl p-5 ${module.sold ? "opacity-70" : ""}`}
-            >
+            <article key={module.id} className={`card rounded-3xl p-5 flex flex-col ${module.sold ? "opacity-70" : ""}`}>
               <div className="flex items-center justify-between mb-4">
                 <Badge status={module.sold ? "sold" : "Listed"} />
                 <span className="font-mono text-[11px] text-text-muted">#{module.id}</span>
               </div>
-              <h3 className="text-lg font-semibold leading-snug mb-2 break-all"><Link href={`/memory/${module.id}`} className="hover:text-mint">{module.title || listingTitle(module.cid)}</Link></h3>
-              <div className="mb-4" onClick={(e) => e.stopPropagation()}>
+              <h3 className="text-lg font-semibold leading-snug break-words">
+                <Link href={`/memory/${module.id}`} className="hover:text-mint">
+                  {module.title || listingTitle(module.cid)}
+                </Link>
+              </h3>
+              <p className="font-mono text-[11px] text-text-muted break-all mt-2">{module.cid}</p>
+              <div className="mt-1">
                 <CopyButton value={module.cid} label="Copy CID" />
               </div>
-              <div className="flex items-center gap-2 text-sm text-text-muted mb-5">
+              <div className="flex items-center gap-2 text-sm text-text-muted mt-4 mb-5">
                 <Identicon address={module.seller} size={22} />
-                <span className="font-mono">{shortAddr(module.seller)}</span>
+                <AgentName address={module.seller} className="text-sm text-mint hover:underline" />
                 <span>· {timeAgo(module.listedAt)}</span>
               </div>
-              <div className="flex items-end justify-between gap-3 pt-4 border-t border-white/8" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-end justify-between gap-3 pt-4 border-t border-white/8 mt-auto">
                 {module.sold ? <span className="font-mono text-xl text-text-muted">Sold</span> : <Price atomic={module.priceUSDC} />}
-                {!module.sold && module.active ? (
-                  <PayButton
-                    size="sm"
-                    connected={market.isConnected}
-                    pending={market.isPending}
-                    disconnectedLabel="Connect to buy"
-                    onClick={() => onBuy(module)}
-                  >
-                    Buy
-                  </PayButton>
-                ) : (
-                  <Button size="sm" disabled>
-                    Buy
-                  </Button>
-                )}
+                <Link href={`/memory/${module.id}`}>
+                  <Button size="sm">{module.sold ? "Open" : "Buy"}</Button>
+                </Link>
               </div>
             </article>
           ))}
         </div>
       )}
 
-      <Modal open={open} onClose={() => setOpen(false)} title="List memory" subtitle="Requires ERC-8004. Price in USDC. 10% fee on sale.">
+      <Modal open={open} onClose={() => setOpen(false)} title="Sell a CID" subtitle="Requires ERC-8004. Price in USDC. 10% fee on sale from the proceeds.">
         <IdentityGate>
-<form onSubmit={onList} className="space-y-4">
-          <Field label="CID" hint="IPFS CID of the Sibyl module. This is what the buyer receives as the pointer.">
-            <input name="cid" required placeholder="bafy…" className={inputClass()} />
-          </Field>
-          <Field label="Title" hint="Shown on the card. Attached to the token URI.">
-            <input name="title" placeholder="Session bridge — 2026-08" className={inputClass()} />
-          </Field>
-          <Field label="Price USDC">
-            <input name="price" required placeholder="80" className={inputClass()} />
-          </Field>
-          <details className="rounded-2xl border border-white/8 p-3">
-            <summary className="cursor-pointer text-sm text-text-muted">Advanced</summary>
-            <div className="mt-3">
-              <Field label="Token URI" hint="Optional metadata URI. Defaults to ipfs://CID.">
-                <input name="uri" placeholder="ipfs://…" className={inputClass()} />
-              </Field>
-            </div>
-          </details>
-          {market.isConnected ? (
-            <Button type="submit" disabled={market.isPending || !hasContract(contracts.memoryMarket)} className="w-full">
-              Publish module
-            </Button>
-          ) : (
-            <ConnectToAct label="Connect to list" className="w-full" />
-          )}
-        </form>
-        </IdentityGate>
-      </Modal>
-
-      <Modal open={Boolean(detail)} onClose={() => setDetail(null)} title={detail ? listingTitle(detail.cid) : ""} subtitle={detail ? `Token #${detail.id}` : ""}>
-        {detail && (
-          <div className="space-y-4">
-            <div className="flex items-center justify-between">
-              <Badge status={detail.sold ? "sold" : "Listed"} />
-              {detail.sold ? <span className="font-mono text-2xl text-text-muted">Sold</span> : <Price atomic={detail.priceUSDC} size="xl" />}
-            </div>
-            <div className="rounded-2xl border border-white/8 bg-black/20 p-3 font-mono text-xs break-all">
-              {detail.cid}
-              <div className="mt-2">
-                <CopyButton value={detail.cid} />
+          <form onSubmit={onList} className="space-y-4">
+            <Field label="CID" hint="IPFS CID of the Sibyl module. This is what the buyer receives as the pointer.">
+              <input name="cid" required placeholder="bafy…" className={inputClass()} />
+            </Field>
+            <Field label="Title" hint="Shown on the product card. Attached to the token URI.">
+              <input name="title" placeholder="Session bridge — 2026-08" className={inputClass()} />
+            </Field>
+            <Field label="Price USDC">
+              <input name="price" required placeholder="80" className={inputClass()} />
+            </Field>
+            <p className="text-xs text-text-muted">
+              Buyer pays this price. Protocol takes 10% from the sale.{" "}
+              <Link href="/guide#story-sell-memory" className="text-mint hover:underline">
+                Sell-memory story
+              </Link>
+            </p>
+            <details className="rounded-2xl border border-white/8 p-3">
+              <summary className="cursor-pointer text-sm text-text-muted">Advanced</summary>
+              <div className="mt-3">
+                <Field label="Token URI" hint="Optional metadata URI. Defaults to ipfs://CID.">
+                  <input name="uri" placeholder="ipfs://…" className={inputClass()} />
+                </Field>
               </div>
-            </div>
-            <a href={addressUrl(detail.seller)} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-sm hover:text-mint">
-              <Identicon address={detail.seller} size={28} />
-              {shortAddr(detail.seller)}
-            </a>
-            {!detail.sold && detail.active && sameAddr(market.address, detail.seller) && (
-              <Button variant="ghost" className="w-full" disabled={!market.isConnected || market.isPending} onClick={() => onDelist(detail)}>
-                Delist
+            </details>
+            {market.isConnected ? (
+              <Button type="submit" disabled={market.isPending || !hasContract(contracts.memoryMarket)} className="w-full">
+                Publish module
               </Button>
+            ) : (
+              <ConnectToAct label="Connect to list" className="w-full" />
             )}
-            {!detail.sold && detail.active && (
-              <>
-                <UsdcBalance className="block text-center" />
-                <PayButton
-                  className="w-full"
-                  connected={market.isConnected}
-                  pending={market.isPending}
-                  disconnectedLabel="Connect to buy"
-                  onClick={() => onBuy(detail)}
-                >
-                  Buy with USDC
-                </PayButton>
-              </>
-            )}
-          </div>
-        )}
+          </form>
+        </IdentityGate>
       </Modal>
     </div>
   );

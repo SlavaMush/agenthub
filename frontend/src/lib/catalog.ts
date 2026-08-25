@@ -112,6 +112,14 @@ export function fetchAgentByAddress(address: string) {
   return getJson<CatalogAgent>(`/agents/${address}`);
 }
 
+export async function fetchAgentByAddressOptional(address: string) {
+  try {
+    return await fetchAgentByAddress(address);
+  } catch {
+    return null;
+  }
+}
+
 export function fetchStats() {
   return getJson<CatalogStats>("/stats");
 }

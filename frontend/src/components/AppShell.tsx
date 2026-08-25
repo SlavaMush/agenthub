@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { ConnectMenu } from "@/components/ConnectMenu";
 import { ToastProvider } from "@/components/Toast";
+import { useInboxCount } from "@/hooks/useMyBook";
 
 const nav = [
   { href: "/services", label: "Hire" },
@@ -15,6 +16,7 @@ const nav = [
 
 export function AppShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const inboxCount = useInboxCount();
 
   return (
     <ToastProvider>
@@ -40,11 +42,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <Link
                     key={item.href}
                     href={item.href}
-                    className={`h-9 px-4 rounded-full text-sm transition ${
+                    className={`h-9 px-4 rounded-full text-sm transition inline-flex items-center ${
                       active ? "bg-white text-bg font-semibold" : "text-text-muted hover:text-text"
                     }`}
                   >
-                    {item.label}
+                    <NavLabel href={item.href} label={item.label} inboxCount={inboxCount} />
                   </Link>
                 );
               })}
@@ -55,7 +57,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 href="/guide"
                 className="inline-flex h-9 items-center px-3.5 rounded-full text-xs font-semibold text-text-muted hover:text-text"
               >
-                Guide
+                Stories
               </Link>
               <SellMenu />
               <ConnectMenu />
@@ -72,7 +74,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                     active ? "bg-white text-bg" : "border border-white/10 text-text-muted"
                   }`}
                 >
-                  {item.label}
+                  <NavLabel href={item.href} label={item.label} inboxCount={inboxCount} />
                 </Link>
               );
             })}
@@ -86,7 +88,7 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p>AgentHub · Non-custodial USDC settlement on Base</p>
             <div className="flex items-center gap-6">
               <Link href="/guide" className="hover:text-mint">
-                Guide
+                User stories
               </Link>
               <a href="https://github.com/SlavaMush/agenthub" target="_blank" rel="noopener noreferrer" className="hover:text-mint">
                 GitHub
@@ -102,6 +104,19 @@ export function AppShell({ children }: { children: ReactNode }) {
         </footer>
       </div>
     </ToastProvider>
+  );
+}
+
+function NavLabel({ href, label, inboxCount }: { href: string; label: string; inboxCount: number }) {
+  return (
+    <span className="inline-flex items-center">
+      {label}
+      {href === "/me" && inboxCount > 0 && (
+        <span className="ml-1.5 inline-flex min-w-4 h-4 px-1 rounded-full bg-mint text-bg text-[10px] font-bold items-center justify-center">
+          {inboxCount > 9 ? "9+" : inboxCount}
+        </span>
+      )}
+    </span>
   );
 }
 
@@ -137,17 +152,14 @@ function SellMenu() {
         Sell
       </button>
       {open && (
-        <div
-          role="menu"
-          className="absolute right-0 mt-2 w-52 rounded-2xl border border-white/10 bg-[#0c1512] shadow-2xl p-1 z-50"
-        >
+        <div role="menu" className="absolute right-0 mt-2 w-52 rounded-2xl border border-white/10 bg-[#0c1512] shadow-2xl p-1 z-50">
           <Link
             href="/services?list=1"
             role="menuitem"
             onClick={() => setOpen(false)}
             className="block rounded-xl px-3.5 py-2.5 hover:bg-white/[0.04]"
           >
-            <span className="block text-sm font-medium">Offer a service</span>
+            <span className="block text-sm font-medium">Offer a gig</span>
             <span className="block text-[11px] text-text-muted mt-0.5">Escrowed hire on Base</span>
           </Link>
           <Link
@@ -156,7 +168,7 @@ function SellMenu() {
             onClick={() => setOpen(false)}
             className="block rounded-xl px-3.5 py-2.5 hover:bg-white/[0.04]"
           >
-            <span className="block text-sm font-medium">Sell memory</span>
+            <span className="block text-sm font-medium">Sell a CID</span>
             <span className="block text-[11px] text-text-muted mt-0.5">Sibyl module as NFT</span>
           </Link>
         </div>
