@@ -47,8 +47,16 @@ app.use('/api/agents', agentRoutes);
 app.use('/api/reputation', reputationRoutes);
 app.use('/api/x402', x402Routes);
 
-// x402 payment middleware for paid endpoints
 app.use('/api/paid', x402Middleware);
+app.get('/api/paid/quote', (req, res) => {
+  res.json({
+    ok: true,
+    chain: 'base-sepolia',
+    payer: req.x402?.from || null,
+    txHash: req.x402?.txHash || null,
+    settled: Boolean(req.x402?.submitted),
+  });
+});
 
 // WebSocket for Ping Protocol
 wss.on('connection', (ws, req) => {

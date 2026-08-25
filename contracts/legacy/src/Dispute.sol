@@ -18,42 +18,55 @@ contract Dispute is Ownable, ReentrancyGuard {
     address public immutable AGENT_HUB;
 
     // Dispute parameters
-    uint256 public constant JUROR_STAKE_USDC = 500 * 1e6;      // 500 USDC stake per juror
-    uint256 public constant DISPUTER_STAKE_USDC = 100 * 1e6;   // 100 USDC to raise dispute
-    uint256 public constant VOTING_PERIOD_HOURS = 48;          // 48 hours to vote
-    uint256 public constant APPEAL_PERIOD_HOURS = 24;          // 24 hours to appeal
-    uint256 public constant MAX_APPEALS = 1;                   // One appeal allowed
+    uint256 public constant JUROR_STAKE_USDC = 500 * 1e6; // 500 USDC stake per juror
+    uint256 public constant DISPUTER_STAKE_USDC = 100 * 1e6; // 100 USDC to raise dispute
+    uint256 public constant VOTING_PERIOD_HOURS = 48; // 48 hours to vote
+    uint256 public constant APPEAL_PERIOD_HOURS = 24; // 24 hours to appeal
+    uint256 public constant MAX_APPEALS = 1; // One appeal allowed
 
-    enum DisputeType { SERVICE, MEMORY }
-    enum DisputeStatus { OPEN, VOTING, RESOLVED, APPEALED, CLOSED }
-    enum Vote { BUYER, SELLER, ABSTAIN }
+    enum DisputeType {
+        SERVICE,
+        MEMORY
+    }
+    enum DisputeStatus {
+        OPEN,
+        VOTING,
+        RESOLVED,
+        APPEALED,
+        CLOSED
+    }
+    enum Vote {
+        BUYER,
+        SELLER,
+        ABSTAIN
+    }
 
     struct DisputeCase {
         uint256 disputeId;
         DisputeType disputeType;
-        uint256 resourceId;        // listingId or tokenId
-        address disputer;          // Who raised the dispute
+        uint256 resourceId; // listingId or tokenId
+        address disputer; // Who raised the dispute
         address buyer;
         address seller;
-        uint256 escrowAmount;      // USDC amount in dispute
-        uint256 disputerStake;     // USDC staked by disputer
+        uint256 escrowAmount; // USDC amount in dispute
+        uint256 disputerStake; // USDC staked by disputer
         DisputeStatus status;
         uint256 createdAt;
         uint256 votingEndsAt;
         uint256 resolvedAt;
-        
+
         // Jurors (3)
         address[3] jurors;
         uint256[3] jurorStakes;
         Vote[3] votes;
         uint256 votesCast;
-        
+
         // Resolution
         Vote winningVote;
         bool buyerWins;
         uint256 buyerRefund;
         uint256 sellerPayout;
-        
+
         // Appeal
         bool appealed;
         uint256 appealEndsAt;
@@ -77,22 +90,13 @@ contract Dispute is Ownable, ReentrancyGuard {
     );
     event JurorSelected(uint256 indexed disputeId, address indexed juror);
     event VoteCast(uint256 indexed disputeId, address indexed juror, Vote vote);
-    event DisputeResolved(
-        uint256 indexed disputeId,
-        bool buyerWins,
-        uint256 buyerRefund,
-        uint256 sellerPayout
-    );
+    event DisputeResolved(uint256 indexed disputeId, bool buyerWins, uint256 buyerRefund, uint256 sellerPayout);
     event DisputeAppealed(uint256 indexed disputeId, address indexed appellant);
     event JurorPoolUpdated(address indexed juror, bool added);
 
-    constructor(
-        address _usdc,
-        address _sibylToken,
-        address _serviceListing,
-        address _memoryNFT,
-        address _agentHub
-    ) Ownable(msg.sender) {
+    constructor(address _usdc, address _sibylToken, address _serviceListing, address _memoryNFT, address _agentHub)
+        Ownable(msg.sender)
+    {
         USDC = _usdc;
         SIBYL_TOKEN = _sibylToken;
         SERVICE_LISTING = _serviceListing;
@@ -104,13 +108,8 @@ contract Dispute is Ownable, ReentrancyGuard {
 
     function raiseServiceDispute(uint256 listingId) external nonReentrant {
         // Get listing data
-        (
-            address seller,
-            address buyer,
-            uint256 escrowAmount,
-            bool disputed,
-            bool delivered
-        ) = IServiceListing(SERVICE_LISTING).getListing(listingId);
+        (address seller, address buyer, uint256 escrowAmount, bool disputed, bool delivered) =
+            IServiceListing(SERVICE_LISTING).getListing(listingId);
 
         require(buyer != address(0), "NO_BUYER");
         require(msg.sender == buyer || msg.sender == seller, "NOT_PARTY");
@@ -145,7 +144,7 @@ contract Dispute is Ownable, ReentrancyGuard {
         // In practice, this would be called if buyer claims memory is invalid
         // For now, allow seller to dispute if payment failed
         // Buyer would raise via a different mechanism
-        
+
         address buyer = IMemoryNFT(MEMORY_NFT).ownerOf(tokenId); // Current NFT holder
         require(buyer != seller, "SELF_DISPUTE");
 
@@ -279,7 +278,7 @@ contract Dispute is Ownable, ReentrancyGuard {
             // Buyer gets full refund + disputer stake back
             dispute.buyerRefund = dispute.escrowAmount + dispute.disputerStake;
             dispute.sellerPayout = 0;
-            
+
             // Return juror stakes
             for (uint256 i = 0; i < 3; i++) {
                 IERC20(USDC).safeTransfer(dispute.jurors[i], dispute.jurorStakes[i]);
@@ -290,7 +289,7 @@ contract Dispute is Ownable, ReentrancyGuard {
             // Seller wins - gets escrow + disputer stake as penalty
             dispute.buyerRefund = 0;
             dispute.sellerPayout = dispute.escrowAmount + dispute.disputerStake;
-            
+
             // Return juror stakes
             for (uint256 i = 0; i < 3; i++) {
                 IERC20(USDC).safeTransfer(dispute.jurors[i], dispute.jurorStakes[i]);
@@ -370,7 +369,7 @@ contract Dispute is Ownable, ReentrancyGuard {
 
     function _selectJurors() internal view returns (address[3] memory) {
         require(jurorPool.length >= 3, "INSUFFICIENT_JURORS");
-        
+
         // Simple pseudo-random selection based on blockhash
         address[3] memory selected;
         for (uint256 i = 0; i < 3; i++) {
@@ -406,7 +405,9 @@ contract Dispute is Ownable, ReentrancyGuard {
     }
 
     function addJuror(address juror) external onlyOwner {
-        require(IERC8004IdentityRegistry(0x8004A169FB4a3325136EB29fA0ceB6D2e539a432).isRegistered(juror), "NOT_REGISTERED");
+        require(
+            IERC8004IdentityRegistry(0x8004A169FB4a3325136EB29fA0ceB6D2e539a432).isRegistered(juror), "NOT_REGISTERED"
+        );
         // In production, check reputation score >= minimumJurorReputation
         eligibleJuror[juror] = true;
         jurorPool.push(juror);
@@ -439,10 +440,10 @@ contract Dispute is Ownable, ReentrancyGuard {
         require(msg.sender == SERVICE_LISTING, "ONLY_SERVICE_LISTING");
         // Find dispute for this listing
         for (uint256 i = 0; i < nextDisputeId; i++) {
-            if (disputes[i].disputeType == DisputeType.SERVICE && 
-                disputes[i].resourceId == listingId &&
-                disputes[i].status == DisputeStatus.RESOLVED &&
-                disputes[i].buyerWins) {
+            if (
+                disputes[i].disputeType == DisputeType.SERVICE && disputes[i].resourceId == listingId
+                    && disputes[i].status == DisputeStatus.RESOLVED && disputes[i].buyerWins
+            ) {
                 IERC20(USDC).safeTransfer(disputes[i].buyer, disputes[i].buyerRefund);
                 return;
             }
@@ -453,10 +454,10 @@ contract Dispute is Ownable, ReentrancyGuard {
     function releaseToSeller(uint256 listingId) external {
         require(msg.sender == SERVICE_LISTING, "ONLY_SERVICE_LISTING");
         for (uint256 i = 0; i < nextDisputeId; i++) {
-            if (disputes[i].disputeType == DisputeType.SERVICE && 
-                disputes[i].resourceId == listingId &&
-                disputes[i].status == DisputeStatus.RESOLVED &&
-                !disputes[i].buyerWins) {
+            if (
+                disputes[i].disputeType == DisputeType.SERVICE && disputes[i].resourceId == listingId
+                    && disputes[i].status == DisputeStatus.RESOLVED && !disputes[i].buyerWins
+            ) {
                 IERC20(USDC).safeTransfer(disputes[i].seller, disputes[i].sellerPayout);
                 return;
             }
@@ -467,10 +468,10 @@ contract Dispute is Ownable, ReentrancyGuard {
     function refundBuyer(uint256 tokenId) external {
         require(msg.sender == MEMORY_NFT, "ONLY_MEMORY_NFT");
         for (uint256 i = 0; i < nextDisputeId; i++) {
-            if (disputes[i].disputeType == DisputeType.MEMORY && 
-                disputes[i].resourceId == tokenId &&
-                disputes[i].status == DisputeStatus.RESOLVED &&
-                disputes[i].buyerWins) {
+            if (
+                disputes[i].disputeType == DisputeType.MEMORY && disputes[i].resourceId == tokenId
+                    && disputes[i].status == DisputeStatus.RESOLVED && disputes[i].buyerWins
+            ) {
                 IERC20(USDC).safeTransfer(disputes[i].buyer, disputes[i].buyerRefund);
                 return;
             }
@@ -481,10 +482,10 @@ contract Dispute is Ownable, ReentrancyGuard {
     function paySeller(uint256 tokenId) external {
         require(msg.sender == MEMORY_NFT, "ONLY_MEMORY_NFT");
         for (uint256 i = 0; i < nextDisputeId; i++) {
-            if (disputes[i].disputeType == DisputeType.MEMORY && 
-                disputes[i].resourceId == tokenId &&
-                disputes[i].status == DisputeStatus.RESOLVED &&
-                !disputes[i].buyerWins) {
+            if (
+                disputes[i].disputeType == DisputeType.MEMORY && disputes[i].resourceId == tokenId
+                    && disputes[i].status == DisputeStatus.RESOLVED && !disputes[i].buyerWins
+            ) {
                 IERC20(USDC).safeTransfer(disputes[i].seller, disputes[i].sellerPayout);
                 return;
             }

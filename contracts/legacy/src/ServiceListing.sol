@@ -19,15 +19,22 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
     uint256 public FEE_BPS; // 5% = 500 bps
 
     // Service categories
-    enum ServiceCategory { AUDIT, RESEARCH, CONTENT, DEBUG, STRATEGY, MEMORY_BUILD }
+    enum ServiceCategory {
+        AUDIT,
+        RESEARCH,
+        CONTENT,
+        DEBUG,
+        STRATEGY,
+        MEMORY_BUILD
+    }
 
     struct Service {
         string title;
         string description;
         ServiceCategory category;
-        uint256 priceUSDC;        // Fixed price (0 = auction)
-        uint256 minBidUSDC;       // Minimum bid for auctions
-        uint256 durationHours;    // Expected delivery time
+        uint256 priceUSDC; // Fixed price (0 = auction)
+        uint256 minBidUSDC; // Minimum bid for auctions
+        uint256 durationHours; // Expected delivery time
         address seller;
         bool active;
         uint256 createdAt;
@@ -67,12 +74,10 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
     event ServiceCancelled(uint256 indexed listingId, address indexed seller);
     event FeeUpdated(uint256 newFeeBps);
 
-    constructor(
-        address _erc8004Registry,
-        address _usdc,
-        address _feeRecipient,
-        uint256 _feeBps
-    ) ERC1155("") Ownable(msg.sender) {
+    constructor(address _erc8004Registry, address _usdc, address _feeRecipient, uint256 _feeBps)
+        ERC1155("")
+        Ownable(msg.sender)
+    {
         ERC8004_REGISTRY = _erc8004Registry;
         USDC = _usdc;
         FEE_RECIPIENT = _feeRecipient;
@@ -85,8 +90,8 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         string calldata title,
         string calldata description,
         ServiceCategory category,
-        uint256 priceUSDC,      // 0 = auction
-        uint256 minBidUSDC,     // For auctions
+        uint256 priceUSDC, // 0 = auction
+        uint256 minBidUSDC, // For auctions
         uint256 durationHours
     ) external returns (uint256) {
         require(IERC8004IdentityRegistry(ERC8004_REGISTRY).isRegistered(msg.sender), "NOT_REGISTERED");
@@ -99,7 +104,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         }
 
         uint256 listingId = nextListingId++;
-        
+
         listings[listingId] = Listing({
             service: Service({
                 title: title,
@@ -149,11 +154,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         bids[listingId][msg.sender] = amountUSDC;
 
         listing.highestBid = Bid({
-            bidder: msg.sender,
-            amountUSDC: amountUSDC,
-            timestamp: block.timestamp,
-            accepted: false,
-            refunded: false
+            bidder: msg.sender, amountUSDC: amountUSDC, timestamp: block.timestamp, accepted: false, refunded: false
         });
         listing.inEscrow = true;
         listing.escrowAmount = amountUSDC;
@@ -161,14 +162,10 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         emit BidPlaced(listingId, msg.sender, amountUSDC);
     }
 
-    function placeBidWithPermit(
-        uint256 listingId,
-        uint256 amountUSDC,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external nonReentrant {
+    function placeBidWithPermit(uint256 listingId, uint256 amountUSDC, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        nonReentrant
+    {
         Listing storage listing = listings[listingId];
         require(listing.service.active, "NOT_ACTIVE");
         require(listing.service.priceUSDC == 0, "FIXED_PRICE_USE_BUY");
@@ -186,11 +183,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         bids[listingId][msg.sender] = amountUSDC;
 
         listing.highestBid = Bid({
-            bidder: msg.sender,
-            amountUSDC: amountUSDC,
-            timestamp: block.timestamp,
-            accepted: false,
-            refunded: false
+            bidder: msg.sender, amountUSDC: amountUSDC, timestamp: block.timestamp, accepted: false, refunded: false
         });
         listing.inEscrow = true;
         listing.escrowAmount = amountUSDC;
@@ -207,7 +200,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         require(listing.service.seller != msg.sender, "CANT_BUY_OWN");
 
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), listing.service.priceUSDC);
-        
+
         listing.inEscrow = true;
         listing.escrowAmount = listing.service.priceUSDC;
         listing.winner = msg.sender;
@@ -216,13 +209,10 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
         emit BidAccepted(listingId, msg.sender, listing.service.priceUSDC);
     }
 
-    function buyNowWithPermit(
-        uint256 listingId,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external nonReentrant {
+    function buyNowWithPermit(uint256 listingId, uint256 deadline, uint8 v, bytes32 r, bytes32 s)
+        external
+        nonReentrant
+    {
         Listing storage listing = listings[listingId];
         require(listing.service.active, "NOT_ACTIVE");
         require(listing.service.priceUSDC > 0, "AUCTION_USE_BID");
@@ -230,7 +220,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
 
         IERC20Permit(USDC).permit(msg.sender, address(this), listing.service.priceUSDC, deadline, v, r, s);
         IERC20(USDC).safeTransferFrom(msg.sender, address(this), listing.service.priceUSDC);
-        
+
         listing.inEscrow = true;
         listing.escrowAmount = listing.service.priceUSDC;
         listing.winner = msg.sender;
@@ -309,7 +299,7 @@ contract ServiceListing is ERC1155, Ownable, ReentrancyGuard {
 
     function _releasePayment(uint256 listingId) internal {
         Listing storage listing = listings[listingId];
-        
+
         uint256 fee = (listing.escrowAmount * FEE_BPS) / 10000;
         uint256 sellerAmount = listing.escrowAmount - fee;
 

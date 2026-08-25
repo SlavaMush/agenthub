@@ -12,34 +12,25 @@ contract ReputationOracle is Ownable {
     address public immutable PING_PROTOCOL;
 
     // Weights (must sum to 10000 = 100%)
-    uint256 public WEIGHT_ERC8004_REVIEWS = 4000;    // 40%
-    uint256 public WEIGHT_PING_MESSAGES = 2000;      // 20%
-    uint256 public WEIGHT_X402_REVENUE = 2500;       // 25%
-    uint256 public WEIGHT_TALOS_PNL = 1500;          // 15%
+    uint256 public WEIGHT_ERC8004_REVIEWS = 4000; // 40%
+    uint256 public WEIGHT_PING_MESSAGES = 2000; // 20%
+    uint256 public WEIGHT_X402_REVENUE = 2500; // 25%
+    uint256 public WEIGHT_TALOS_PNL = 1500; // 15%
     // Memory quality = bonus up to 10% (added on top)
 
     // Off-chain data pushed by indexer (updated via admin or authorized indexer)
-    mapping(address => uint256) public x402Revenue30d;      // USDC
-    mapping(address => int256) public talosPnl30d;          // USDC (can be negative)
-    mapping(address => uint256) public memoryQualityScore;  // 0-1000 (avg benchmark score)
+    mapping(address => uint256) public x402Revenue30d; // USDC
+    mapping(address => int256) public talosPnl30d; // USDC (can be negative)
+    mapping(address => uint256) public memoryQualityScore; // 0-1000 (avg benchmark score)
 
     // Authorized indexer to push off-chain data
     mapping(address => bool) public authorizedIndexer;
 
-    event WeightsUpdated(
-        uint256 erc8004Reviews,
-        uint256 pingMessages,
-        uint256 x402Revenue,
-        uint256 talosPnl
-    );
+    event WeightsUpdated(uint256 erc8004Reviews, uint256 pingMessages, uint256 x402Revenue, uint256 talosPnl);
     event OffChainDataUpdated(address indexed agent, uint256 x402Revenue, int256 talosPnl, uint256 memoryQuality);
     event IndexerAuthorized(address indexed indexer, bool authorized);
 
-    constructor(
-        address _erc8004Registry,
-        address _erc8004Reputation,
-        address _pingProtocol
-    ) Ownable(msg.sender) {
+    constructor(address _erc8004Registry, address _erc8004Reputation, address _pingProtocol) Ownable(msg.sender) {
         ERC8004_REGISTRY = _erc8004Registry;
         ERC8004_REPUTATION = _erc8004Reputation;
         PING_PROTOCOL = _pingProtocol;
@@ -54,7 +45,7 @@ contract ReputationOracle is Ownable {
         // Component 1: ERC-8004 Reviews (40%)
         uint256 reviewCount = IERC8004Reputation(ERC8004_REPUTATION).getReviewCount(agent);
         int256 avgRating = IERC8004Reputation(ERC8004_REPUTATION).getAverageRating(agent);
-        
+
         // Normalize: reviews capped at 100, rating -100 to +100 → 0-1000
         uint256 reviewScore = _normalizeReviews(reviewCount, avgRating);
         uint256 erc8004Component = (reviewScore * WEIGHT_ERC8004_REVIEWS) / 10000;
@@ -215,14 +206,12 @@ contract ReputationOracle is Ownable {
 
     // ==================== WEIGHT MANAGEMENT ====================
 
-    function updateWeights(
-        uint256 erc8004Reviews,
-        uint256 pingMessages,
-        uint256 x402Revenue,
-        uint256 talosPnl
-    ) external onlyOwner {
+    function updateWeights(uint256 erc8004Reviews, uint256 pingMessages, uint256 x402Revenue, uint256 talosPnl)
+        external
+        onlyOwner
+    {
         require(erc8004Reviews + pingMessages + x402Revenue + talosPnl == 10000, "WEIGHTS_MUST_SUM_10000");
-        
+
         WEIGHT_ERC8004_REVIEWS = erc8004Reviews;
         WEIGHT_PING_MESSAGES = pingMessages;
         WEIGHT_X402_REVENUE = x402Revenue;
@@ -233,15 +222,19 @@ contract ReputationOracle is Ownable {
 
     // ==================== VIEWS ====================
 
-    function getAgentBreakdown(address agent) external view returns (
-        uint256 erc8004Score,
-        uint256 pingScore,
-        uint256 x402Score,
-        uint256 talosScore,
-        uint256 memoryBonus,
-        uint256 totalScore,
-        uint8 tier
-    ) {
+    function getAgentBreakdown(address agent)
+        external
+        view
+        returns (
+            uint256 erc8004Score,
+            uint256 pingScore,
+            uint256 x402Score,
+            uint256 talosScore,
+            uint256 memoryBonus,
+            uint256 totalScore,
+            uint8 tier
+        )
+    {
         require(IERC8004IdentityRegistry(ERC8004_REGISTRY).isRegistered(agent), "NOT_REGISTERED");
 
         uint256 reviewCount = IERC8004Reputation(ERC8004_REPUTATION).getReviewCount(agent);

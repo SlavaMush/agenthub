@@ -1,1 +1,4 @@
 node_modules/
+contracts/out/
+contracts/cache/
+indexer/data/

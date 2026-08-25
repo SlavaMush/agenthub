@@ -1,183 +1,158 @@
-import express from 'express';
-import { createPublicClient, http, parseEther, formatEther, encodeFunctionData, createWalletClient } from 'viem';
-import { baseSepolia } from 'viem/chains';
-import { privateKeyToAccount } from 'viem/accounts';
+import express from "express";
+import {
+  createPublicClient,
+  createWalletClient,
+  http,
+  verifyTypedData,
+  parseSignature,
+} from "viem";
+import { privateKeyToAccount } from "viem/accounts";
+import { base, baseSepolia } from "viem/chains";
+import {
+  getChain,
+  usdcAbi,
+  RECEIVE_WITH_AUTHORIZATION_TYPES,
+  X402,
+  usdcToAtomic,
+} from "../packages/config/index.js";
 
-// x402 payment configuration
-const USDC_ADDRESS = '0x036CbD53842c5426634e7929541eC2318f3dCF7e'; // Base Sepolia USDC
-const SIBYL_STAKING = '0x6151AA0689576E8F8D218f4DC7F6A4Ec1533d44d';
-const AGENT_HUB_ADDRESS = process.env.AGENT_HUB_ADDRESS || '';
-const PAYMENT_AMOUNT_USDC = parseFloat(process.env.PAYMENT_AMOUNT_USDC || '1'); // 1 USDC default
+const chainId = Number(process.env.CHAIN_ID || 84532);
+const chain = getChain(chainId);
+const viemChain = chainId === 8453 ? base : baseSepolia;
+const rpcUrl = process.env.RPC_URL || chain.rpcUrls[0];
+const payTo = (process.env.X402_PAY_TO || process.env.TREASURY_ADDRESS || "").toLowerCase();
+const priceAtomic = usdcToAtomic(process.env.X402_PRICE_USDC || "1");
 
-// ERC-20 ABI for permit and transferFrom
-const ERC20_ABI = [
-  { name: 'permit', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'owner', type: 'address' },
-    { name: 'spender', type: 'address' },
-    { name: 'value', type: 'uint256' },
-    { name: 'deadline', type: 'uint256' },
-    { name: 'v', type: 'uint8' },
-    { name: 'r', type: 'bytes32' },
-    { name: 's', type: 'bytes32' }
-  ], outputs: [] },
-  { name: 'transferFrom', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'from', type: 'address' },
-    { name: 'to', type: 'address' },
-    { name: 'value', type: 'uint256' }
-  ], outputs: [{ type: 'bool' }] },
-  { name: 'allowance', type: 'function', stateMutability: 'view', inputs: [
-    { name: 'owner', type: 'address' },
-    { name: 'spender', type: 'address' }
-  ], outputs: [{ type: 'uint256' }] },
-  { name: 'balanceOf', type: 'function', stateMutability: 'view', inputs: [
-    { name: 'account', type: 'address' }
-  ], outputs: [{ type: 'uint256' }] },
-  { name: 'decimals', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint8' }] }
-];
-
-// AgentHub ABI for fee collection
-const AGENT_HUB_ABI = [
-  { name: 'collectMemoryFee', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'amount', type: 'uint256' }
-  ], outputs: [] },
-  { name: 'collectServiceFee', type: 'function', stateMutability: 'nonpayable', inputs: [
-    { name: 'amount', type: 'uint256' }
-  ], outputs: [] }
-];
-
-const client = createPublicClient({
-  chain: baseSepolia,
-  transport: http(process.env.BASE_SEPOLIA_RPC || 'https://sepolia.base.org')
+const publicClient = createPublicClient({
+  chain: viemChain,
+  transport: http(rpcUrl),
 });
 
-// x402 Middleware - validates payment before allowing access
-export async function x402Middleware(req, res, next) {
-  const paymentHeader = req.headers['x-payment'];
-  
-  if (!paymentHeader) {
-    return res.status(402).json({
-      error: 'Payment Required',
-      message: 'This endpoint requires x402 payment',
-      accept: 'x402',
-      amount: PAYMENT_AMOUNT_USDC,
-      asset: 'USDC',
-      network: 'base-sepolia',
-      payTo: AGENT_HUB_ADDRESS,
-      description: 'AgentHub API access'
-    });
-  }
+function facilitatorAccount() {
+  const key = process.env.X402_FACILITATOR_KEY;
+  if (!key) return null;
+  return privateKeyToAccount(key.startsWith("0x") ? key : `0x${key}`);
+}
 
+export function paymentRequired(resource = "/api/paid") {
+  return {
+    x402Version: 1,
+    error: "Payment Required",
+    accepts: [
+      {
+        scheme: X402.scheme,
+        network: chain.x402Network,
+        maxAmountRequired: priceAtomic.toString(),
+        resource,
+        description: "AgentHub API access",
+        payTo: payTo || null,
+        asset: chain.usdc,
+        extra: { name: chain.usdcName, version: chain.usdcVersion },
+      },
+    ],
+  };
+}
+
+export function authorizationDomain() {
+  return {
+    name: chain.usdcName,
+    version: chain.usdcVersion,
+    chainId: chain.chainId,
+    verifyingContract: chain.usdc,
+  };
+}
+
+export async function verifyAuthorization(auth) {
+  const from = String(auth.from || "").toLowerCase();
+  const to = String(auth.to || "").toLowerCase();
+  const value = BigInt(auth.value);
+  const validAfter = BigInt(auth.validAfter ?? 0);
+  const validBefore = BigInt(auth.validBefore);
+  const nonce = auth.nonce;
+  const now = BigInt(Math.floor(Date.now() / 1000));
+
+  if (!from || !to || !nonce) throw new Error("authorization missing fields");
+  if (payTo && to !== payTo) throw new Error("authorization to does not match payTo");
+  if (value < priceAtomic) throw new Error("authorization value below price");
+  if (now < validAfter || now > validBefore) throw new Error("authorization expired");
+
+  const valid = await verifyTypedData({
+    address: from,
+    domain: authorizationDomain(),
+    types: RECEIVE_WITH_AUTHORIZATION_TYPES,
+    primaryType: "ReceiveWithAuthorization",
+    message: { from, to, value, validAfter, validBefore, nonce },
+    signature: auth.signature,
+  });
+  if (!valid) throw new Error("invalid EIP-3009 signature");
+  return { from, to, value, validAfter, validBefore, nonce, signature: auth.signature };
+}
+
+export async function submitAuthorization(auth) {
+  const account = facilitatorAccount();
+  if (!account) {
+    return { submitted: false, txHash: null };
+  }
+  const sig = parseSignature(auth.signature);
+  const wallet = createWalletClient({
+    account,
+    chain: viemChain,
+    transport: http(rpcUrl),
+  });
+  const txHash = await wallet.writeContract({
+    address: chain.usdc,
+    abi: usdcAbi,
+    functionName: "receiveWithAuthorization",
+    args: [auth.from, auth.to, auth.value, auth.validAfter, auth.validBefore, auth.nonce, Number(sig.v), sig.r, sig.s],
+  });
+  return { submitted: true, txHash };
+}
+
+function readPayment(req) {
+  const header = req.headers["x-payment"] || req.headers["X-PAYMENT"];
+  if (header) {
+    return typeof header === "string" && header.trim().startsWith("{") ? JSON.parse(header) : JSON.parse(Buffer.from(header, "base64").toString("utf8"));
+  }
+  return req.body?.payment || null;
+}
+
+export async function x402Middleware(req, res, next) {
+  const payment = readPayment(req);
+  if (!payment) {
+    return res.status(402).json(paymentRequired(req.path));
+  }
   try {
-    const payment = JSON.parse(paymentHeader);
-    const { signature, permit, amount, asset, network, payTo } = payment;
-    
-    // Validate payment details
-    if (asset !== 'USDC' || network !== 'base-sepolia') {
-      return res.status(402).json({ error: 'Invalid payment asset or network' });
-    }
-    
-    if (BigInt(amount) < BigInt(Math.floor(PAYMENT_AMOUNT_USDC * 1e6))) {
-      return res.status(402).json({ error: 'Insufficient payment amount' });
-    }
-    
-    // Verify permit signature
-    const isValid = await verifyPermit(permit, payTo, amount);
-    if (!isValid) {
-      return res.status(402).json({ error: 'Invalid payment signature' });
-    }
-    
-    // Execute the transfer
-    const txHash = await executeTransfer(permit, payTo, amount);
-    
-    // Attach payment info to request
-    req.x402 = { txHash, amount: BigInt(amount), payer: permit.owner };
+    const auth = payment.payload || payment.authorization || payment;
+    const verified = await verifyAuthorization({
+      ...auth,
+      signature: auth.signature || payment.signature,
+    });
+    const settle = await submitAuthorization(verified);
+    req.x402 = { ...verified, ...settle };
     next();
   } catch (err) {
-    console.error('x402 validation error:', err);
-    res.status(402).json({ error: 'Payment validation failed' });
+    res.status(402).json({ error: err.message, ...paymentRequired(req.path) });
   }
 }
 
-// Verify EIP-2612 permit signature
-async function verifyPermit(permit, spender, amount) {
-  try {
-    // Reconstruct the permit message hash
-    const domain = {
-      name: 'Mock USDC',
-      version: '1',
-      chainId: 84532, // Base Sepolia
-      verifyingContract: USDC_ADDRESS
-    };
-    
-    const types = {
-      Permit: [
-        { name: 'owner', type: 'address' },
-        { name: 'spender', type: 'address' },
-        { name: 'value', type: 'uint256' },
-        { name: 'nonce', type: 'uint256' },
-        { name: 'deadline', type: 'uint256' }
-      ]
-    };
-    
-    const message = {
-      owner: permit.owner,
-      spender: permit.spender,
-      value: BigInt(permit.value),
-      nonce: BigInt(permit.nonce),
-      deadline: BigInt(permit.deadline)
-    };
-    
-    // For demo purposes, we trust the permit
-    // In production, use viem's verifyTypedData
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-// Execute the transfer using permit
-async function executeTransfer(permit, payTo, amount) {
-  try {
-    // In production, this would submit the permit + transferFrom to the blockchain
-    // For demo, we just log and return a mock hash
-    console.log(`x402: Executing transfer of ${amount} USDC from ${permit.owner} to ${payTo}`);
-    return '0x' + '0'.repeat(64); // Mock tx hash
-  } catch (err) {
-    console.error('Transfer execution failed:', err);
-    throw err;
-  }
-}
-
-// x402 Routes - payment endpoints
 const router = express.Router();
 
-// Get payment requirements for an endpoint
-router.get('/requirements/:endpoint', (req, res) => {
-  res.json({
-    endpoint: req.params.endpoint,
-    amount: PAYMENT_AMOUNT_USDC,
-    asset: 'USDC',
-    network: 'base-sepolia',
-    payTo: AGENT_HUB_ADDRESS,
-    description: `Access to ${req.params.endpoint}`,
-    accepts: ['permit', 'transfer']
-  });
+router.get("/requirements", (req, res) => {
+  res.json(paymentRequired(req.query.resource || "/api/paid"));
 });
 
-// Verify a payment
-router.post('/verify', async (req, res) => {
+router.post("/verify", async (req, res) => {
   try {
-    const { payment } = req.body;
-    const isValid = await verifyPermit(payment.permit, payment.payTo, payment.amount);
-    
-    if (isValid) {
-      const txHash = await executeTransfer(payment.permit, payment.payTo, payment.amount);
-      res.json({ valid: true, txHash });
-    } else {
-      res.status(400).json({ valid: false, error: 'Invalid payment' });
-    }
+    const payment = req.body.payment || req.body;
+    const auth = payment.payload || payment.authorization || payment;
+    const verified = await verifyAuthorization({
+      ...auth,
+      signature: auth.signature || payment.signature,
+    });
+    const settle = await submitAuthorization(verified);
+    res.json({ valid: true, ...verified, ...settle });
   } catch (err) {
-    res.status(500).json({ valid: false, error: err.message });
+    res.status(400).json({ valid: false, error: err.message });
   }
 });
 

@@ -22,17 +22,21 @@ contract MemoryNFT is ERC721, ERC721URIStorage, Ownable {
     uint256 public FEE_BPS; // 10% = 1000 bps
 
     // Memory Module metadata
-    enum MemoryType { ENTITY_FILE, SESSION_BRIDGE, PRIORITY_INDEX }
+    enum MemoryType {
+        ENTITY_FILE,
+        SESSION_BRIDGE,
+        PRIORITY_INDEX
+    }
 
     struct MemoryModule {
-        string cid;              // IPFS CID of Sibyl Memory directory
-        bytes32 validationHash;  // keccak256(cid + schema_version)
-        uint8 schemaVersion;     // 1 = current
-        MemoryType moduleType;   // Type of memory module
+        string cid; // IPFS CID of Sibyl Memory directory
+        bytes32 validationHash; // keccak256(cid + schema_version)
+        uint8 schemaVersion; // 1 = current
+        MemoryType moduleType; // Type of memory module
         string title;
         string description;
-        uint256 priceUSDC;       // Price in USDC (6 decimals)
-        address seller;          // ERC-8004 verified agent
+        uint256 priceUSDC; // Price in USDC (6 decimals)
+        address seller; // ERC-8004 verified agent
         uint256 listedAt;
         bool sold;
         bool active;
@@ -46,12 +50,10 @@ contract MemoryNFT is ERC721, ERC721URIStorage, Ownable {
     event MemoryDelisted(uint256 indexed tokenId, address indexed seller);
     event FeeUpdated(uint256 newFeeBps);
 
-    constructor(
-        address _erc8004Registry,
-        address _usdc,
-        address _feeRecipient,
-        uint256 _feeBps
-    ) ERC721("AgentHub Memory", "AHM") Ownable(msg.sender) {
+    constructor(address _erc8004Registry, address _usdc, address _feeRecipient, uint256 _feeBps)
+        ERC721("AgentHub Memory", "AHM")
+        Ownable(msg.sender)
+    {
         ERC8004_REGISTRY = _erc8004Registry;
         USDC = _usdc;
         FEE_RECIPIENT = _feeRecipient;
@@ -126,13 +128,7 @@ contract MemoryNFT is ERC721, ERC721URIStorage, Ownable {
 
     // ==================== BUYING WITH PERMIT (GASLESS) ====================
 
-    function buyMemoryModuleWithPermit(
-        uint256 tokenId,
-        uint256 deadline,
-        uint8 v,
-        bytes32 r,
-        bytes32 s
-    ) external {
+    function buyMemoryModuleWithPermit(uint256 tokenId, uint256 deadline, uint8 v, bytes32 r, bytes32 s) external {
         MemoryModule storage module = modules[tokenId];
         require(module.active, "NOT_ACTIVE");
         require(!module.sold, "ALREADY_SOLD");
@@ -192,9 +188,9 @@ contract MemoryNFT is ERC721, ERC721URIStorage, Ownable {
             moduleTypeStr = "PriorityIndex";
         }
 
-        schema = string(abi.encodePacked(
-            '{"type":"', moduleTypeStr, '","schemaVersion":', uint2str(module.schemaVersion), '}'
-        ));
+        schema = string(
+            abi.encodePacked('{"type":"', moduleTypeStr, '","schemaVersion":', uint2str(module.schemaVersion), "}")
+        );
         return (true, schema);
     }
 
@@ -213,21 +209,21 @@ contract MemoryNFT is ERC721, ERC721URIStorage, Ownable {
 
     // ==================== HELPERS ====================
 
-    function _buildTokenURI(
-        string memory cid,
-        string memory title,
-        string memory description,
-        MemoryType moduleType
-    ) internal pure returns (string memory) {
+    function _buildTokenURI(string memory cid, string memory title, string memory description, MemoryType moduleType)
+        internal
+        pure
+        returns (string memory)
+    {
         string memory typeStr;
         if (moduleType == MemoryType.ENTITY_FILE) typeStr = "EntityFile";
         else if (moduleType == MemoryType.SESSION_BRIDGE) typeStr = "SessionBridge";
         else typeStr = "PriorityIndex";
 
-        return string(abi.encodePacked(
-            '{"name":"', title, '","description":"', description,
-            '","type":"', typeStr, '","cid":"', cid, '"}'
-        ));
+        return string(
+            abi.encodePacked(
+                '{"name":"', title, '","description":"', description, '","type":"', typeStr, '","cid":"', cid, '"}'
+            )
+        );
     }
 
     function _baseURI() internal view override returns (string memory) {
