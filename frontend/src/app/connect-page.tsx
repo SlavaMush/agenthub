@@ -19,15 +19,7 @@ type Status =
   | "submitted"
   | "error";
 
-export default function ConnectPage() {
-  return (
-    <Suspense fallback={<p className="p-6">Loading…</p>}>
-      <ConnectInner />
-    </Suspense>
-  );
-}
-
-function ConnectInner() {
+export default function ConnectInner() {
   const params = useSearchParams();
   const sid = params.get("sid") || "";
   const [status, setStatus] = useState<Status>("idle");
