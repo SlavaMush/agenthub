@@ -4,12 +4,14 @@ import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 
 const BOT_LINK = "https://t.me/tradr_aibot";
+const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
 
 // Chat panel shown after wallet connect
 function AgentChat({ address }: { address: string }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string }>>([]);
   const [busy, setBusy] = useState(false);
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
 
   async function send() {
     if (!input.trim() || busy) return;
@@ -17,17 +19,52 @@ function AgentChat({ address }: { address: string }) {
     const userMsg = input;
     setMessages((m) => [...m, { role: "u", t: userMsg }]);
     setInput("");
-    // For now we suggest moving to Telegram — wired to the live agent API in a later pass.
-    setTimeout(() => {
-      setMessages((m) => [
-        ...m,
-        {
-          role: "a",
-          t: "Live voice for the agent is handled in Telegram today. Tap the Telegram button on the right to continue, or join us when the on-site agent rolls out.",
+
+    try {
+      const r = await fetch(`${BOT_API}/agent/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wallet-Address": address,
         },
-      ]);
-      setBusy(false);
-    }, 400);
+        body: JSON.stringify({ text: userMsg }),
+      });
+      const data = await r.json().catch(() => ({}));
+      if (data.needs_connect) {
+        setMessages((m) => [...m, { role: "a", t: "Please sign the delegation first. Open /connect from the navigation." }]);
+      } else if (data.reply) {
+        setMessages((m) => [...m, { role: "a", t: data.reply }]);
+      } else if (data.error) {
+        setMessages((m) => [...m, { role: "a", t: `Error: ${data.error}` }]);
+      }
+      if (data.token) setPendingToken(data.token);
+    } catch (e: any) {
+      setMessages((m) => [...m, { role: "a", t: `API unreachable: ${e.message || e}` }]);
+    }
+    setBusy(false);
+  }
+
+  async function confirmTrade() {
+    if (!pendingToken) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${BOT_API}/agent/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
+        body: JSON.stringify({ token: pendingToken }),
+      });
+      const data = await r.json().catch(() => ({}));
+      setMessages((m) => [...m, { role: "a", t: data.reply || "Confirmed." }]);
+      setPendingToken(null);
+    } catch (e: any) {
+      setMessages((m) => [...m, { role: "a", t: `Confirm failed: ${e.message || e}` }]);
+    }
+    setBusy(false);
+  }
+
+  async function cancelTrade() {
+    setPendingToken(null);
+    setMessages((m) => [...m, { role: "a", t: "Cancelled." }]);
   }
 
   return (
@@ -35,18 +72,45 @@ function AgentChat({ address }: { address: string }) {
       <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
         Connected as <span className="text-[color:var(--color-mint)]">{address.slice(0, 6)}…{address.slice(-4)}</span>
       </p>
-      <div className="mt-3 space-y-2 max-h-56 overflow-y-auto">
+      <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
         {messages.length === 0 && (
-          <p className="text-sm text-[color:var(--color-text-dim)]">Ask the agent anything: "Long ETH 5x $100" / "Close my position"</p>
+          <p className="text-sm text-[color:var(--color-text-dim)]">
+            Try: <code>long $100 ETH 5x with a 10% stop</code> · <code>close everything</code>
+          </p>
         )}
         {messages.map((m, i) => (
-          <div key={i} className={`text-sm ${m.role === "u" ? "text-[color:var(--color-text)]" : "text-[color:var(--color-text-dim)] italic"}`}>
+          <div
+            key={i}
+            className={`whitespace-pre-line text-sm ${
+              m.role === "u" ? "text-[color:var(--color-text)]" : "text-[color:var(--color-text-dim)] italic"
+            }`}
+          >
             {m.role === "u" ? "You: " : "Agent: "}{m.t}
           </div>
         ))}
       </div>
+      {pendingToken && (
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={confirmTrade}
+            disabled={busy}
+            className="rounded-md bg-[color:var(--color-mint)] px-4 py-2 text-sm font-semibold text-black hover:bg-[color:var(--color-mint-dark)]"
+          >
+            Execute trade
+          </button>
+          <button
+            onClick={cancelTrade}
+            className="rounded-md border border-[color:var(--color-border-strong)] px-4 py-2 text-sm hover:bg-[color:var(--color-bg-raised)]"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       <form
-        onSubmit={(e) => { e.preventDefault(); send(); }}
+        onSubmit={(e) => {
+          e.preventDefault();
+          send();
+        }}
         className="mt-4 flex gap-2"
       >
         <input
@@ -65,8 +129,11 @@ function AgentChat({ address }: { address: string }) {
         </button>
       </form>
       <p className="mt-3 text-[11px] text-[color:var(--color-text-mute)]">
-        Live trade execution happens in Telegram right now.{" "}
-        <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">Open the bot</a>.
+        Agent actions are limited by your on-chain delegate permissions.{" "}
+        <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">
+          Also available on Telegram
+        </a>
+        .
       </p>
     </div>
   );
@@ -131,9 +198,9 @@ export default function Home() {
             <span className="brand-mint-text">actually trade.</span>
           </h1>
           <p className="mx-auto mt-6 max-w-xl text-balance text-base leading-relaxed text-[color:var(--color-text-dim)] md:text-lg">
-            Connect your wallet once. Speak plain language to an agent in Telegram. It opens and
-            manages positions inside hard limits you set. Your funds never leave your wallet —
-            you just delegate trades.
+            Connect your wallet once. Speak plain language to an agent — here on this site or in
+            Telegram. It opens and manages positions inside hard limits you set. Your funds never
+            leave your wallet. You just delegate trades.
           </p>
           <div className="mt-9 flex flex-col items-center justify-center gap-3 sm:flex-row">
             <ConnectWalletButton />
@@ -242,16 +309,22 @@ export default function Home() {
               </a>
             </div>
           </div>
-          <div className="brand-card p-6 opacity-60">
+          <div className="brand-card p-6 opacity-90 ring-1 ring-inset ring-[color:var(--color-mint)]/25">
             <div className="flex items-center justify-between">
-              <div className="text-base font-semibold">More agents</div>
-              <span className="rounded-full border border-[color:var(--color-border-strong)] px-2 py-0.5 text-xs text-[color:var(--color-text-mute)]">
-                Soon
+              <div className="text-base font-semibold">Agent Marketplace</div>
+              <span className="rounded-full border border-[color:var(--color-mint)]/40 bg-[color:var(--color-mint)]/10 px-2 py-0.5 text-xs text-[color:var(--color-mint)]">
+                Coming Soon
               </span>
             </div>
             <p className="mt-2 text-sm text-[color:var(--color-text-dim)]">
-              Analytics, research, market-making and custom strategies. Built by third-party agent operators.
+              Deploy your own agent. Set a price. Get paid per call in USDC via x402. Analytics,
+              research, market-making, custom strategies.
             </p>
+            <ul className="mt-4 space-y-1 text-xs text-[color:var(--color-text-dim)]">
+              <li>• Publish once. Every AgentHub user can hire you.</li>
+              <li>• You keep 80%. We take 20% platform fee.</li>
+              <li>• x402 protocol handles payments for you.</li>
+            </ul>
           </div>
         </div>
       </section>
