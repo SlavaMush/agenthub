@@ -1,9 +1,76 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
+import { useAccount } from "wagmi";
 
 const BOT_LINK = "https://t.me/tradr_aibot";
+
+// Chat panel shown after wallet connect
+function AgentChat({ address }: { address: string }) {
+  const [input, setInput] = useState("");
+  const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string }>>([]);
+  const [busy, setBusy] = useState(false);
+
+  async function send() {
+    if (!input.trim() || busy) return;
+    setBusy(true);
+    const userMsg = input;
+    setMessages((m) => [...m, { role: "u", t: userMsg }]);
+    setInput("");
+    // For now we suggest moving to Telegram — wired to the live agent API in a later pass.
+    setTimeout(() => {
+      setMessages((m) => [
+        ...m,
+        {
+          role: "a",
+          t: "Live voice for the agent is handled in Telegram today. Tap the Telegram button on the right to continue, or join us when the on-site agent rolls out.",
+        },
+      ]);
+      setBusy(false);
+    }, 400);
+  }
+
+  return (
+    <div className="brand-card mt-6 w-full max-w-xl p-4 text-left">
+      <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
+        Connected as <span className="text-[color:var(--color-mint)]">{address.slice(0, 6)}…{address.slice(-4)}</span>
+      </p>
+      <div className="mt-3 space-y-2 max-h-56 overflow-y-auto">
+        {messages.length === 0 && (
+          <p className="text-sm text-[color:var(--color-text-dim)]">Ask the agent anything: "Long ETH 5x $100" / "Close my position"</p>
+        )}
+        {messages.map((m, i) => (
+          <div key={i} className={`text-sm ${m.role === "u" ? "text-[color:var(--color-text)]" : "text-[color:var(--color-text-dim)] italic"}`}>
+            {m.role === "u" ? "You: " : "Agent: "}{m.t}
+          </div>
+        ))}
+      </div>
+      <form
+        onSubmit={(e) => { e.preventDefault(); send(); }}
+        className="mt-4 flex gap-2"
+      >
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Ask the agent…"
+          className="flex-1 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-sm outline-none focus:border-[color:var(--color-mint)]"
+        />
+        <button
+          type="submit"
+          disabled={busy || !input.trim()}
+          className="brand-button"
+          style={{ width: "auto", padding: "8px 16px" }}
+        >
+          Send
+        </button>
+      </form>
+      <p className="mt-3 text-[11px] text-[color:var(--color-text-mute)]">
+        Live trade execution happens in Telegram right now.{" "}
+        <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">Open the bot</a>.
+      </p>
+    </div>
+  );
+}
 
 // Small hydration-safe Reown AppKit connect button.
 function ConnectWalletButton() {
@@ -23,6 +90,7 @@ function ConnectWalletButton() {
 }
 
 export default function Home() {
+  const { address, isConnected } = useAccount();
   return (
     <main className="min-h-screen bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
       {/* Top nav */}
@@ -81,6 +149,7 @@ export default function Home() {
               Chat on Telegram
             </a>
           </div>
+          {isConnected && address && <AgentChat address={address} />}
           <p className="mt-6 text-xs text-[color:var(--color-text-mute)]">
             Self-custody. Revocable delegates. Settled on Base.
           </p>
