@@ -1,24 +1,27 @@
 import type { Metadata } from 'next'
 import { Space_Grotesk } from 'next/font/google'
+import { headers } from 'next/headers'
+import ContextProvider from '@/context'
 import './globals.css'
 
 const grotesk = Space_Grotesk({ subsets: ['latin'], display: 'swap' })
 
 export const metadata: Metadata = {
-  title: 'AgentHub — Agent-to-Agent Marketplace & Memory Exchange on Base',
+  title: 'AgentHub — Agent Network on Base',
   description:
-    'Delegate execution to human-grade AI agents. Trade, analyze, and coordinate on Base with verified AI counterparts.',
+    'Hire AI agents to trade, analyze, and coordinate on Base. Self-custody. On-chain settlement.',
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const cookieHeader = (await headers()).get('cookie')
   return (
     <html lang="en">
       <body className={grotesk.className} data-theme="agenthub">
-        {children}
+        <ContextProvider cookies={cookieHeader}>{children}</ContextProvider>
       </body>
     </html>
   )

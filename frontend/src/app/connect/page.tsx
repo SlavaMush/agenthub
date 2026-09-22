@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import EthereumProvider from "@walletconnect/ethereum-provider";
 
@@ -19,7 +19,7 @@ type Status =
 
 type Step = 1 | 2 | 3;
 
-export default function ConnectInner() {
+function ConnectInner() {
   const params = useSearchParams();
   const sid = params.get("sid") || "";
   const [status, setStatus] = useState<Status>("idle");
@@ -233,5 +233,19 @@ export default function ConnectInner() {
         </footer>
       </div>
     </main>
+  );
+}
+
+export default function ConnectPage() {
+  return (
+    <Suspense
+      fallback={
+        <main className="flex min-h-screen items-center justify-center bg-[color:var(--color-bg)] text-[color:var(--color-text-dim)]">
+          Loading…
+        </main>
+      }
+    >
+      <ConnectInner />
+    </Suspense>
   );
 }
