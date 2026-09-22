@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 
 const BOT_LINK = "https://t.me/tradr_aibot";
-const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
+const BOT_API = "/api/agent";  // serverless on Vercel
 
 // Chat panel shown after wallet connect
 function AgentChat({ address }: { address: string }) {
   const [input, setInput] = useState("");
   const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string }>>([]);
   const [busy, setBusy] = useState(false);
-  const [pendingToken, setPendingToken] = useState<string | null>(null);
+  // pending token flows via Telegram deep-link after Phase 2; UI prefix removed for now.
 
   async function send() {
     if (!input.trim() || busy) return;
@@ -21,50 +21,22 @@ function AgentChat({ address }: { address: string }) {
     setInput("");
 
     try {
-      const r = await fetch(`${BOT_API}/agent/chat`, {
+      const r = await fetch(`${BOT_API}/chat`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Wallet-Address": address,
-        },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: userMsg }),
       });
       const data = await r.json().catch(() => ({}));
-      if (data.needs_connect) {
-        setMessages((m) => [...m, { role: "a", t: "Please sign the delegation first. Open /connect from the navigation." }]);
-      } else if (data.reply) {
+      if (data.reply) {
         setMessages((m) => [...m, { role: "a", t: data.reply }]);
       } else if (data.error) {
         setMessages((m) => [...m, { role: "a", t: `Error: ${data.error}` }]);
       }
-      if (data.token) setPendingToken(data.token);
+      if (data.deeplink) setMessages((m) => [...m, { role: "a", t: `Open in Telegram: ${data.deeplink}` }]);
     } catch (e: any) {
       setMessages((m) => [...m, { role: "a", t: `API unreachable: ${e.message || e}` }]);
     }
     setBusy(false);
-  }
-
-  async function confirmTrade() {
-    if (!pendingToken) return;
-    setBusy(true);
-    try {
-      const r = await fetch(`${BOT_API}/agent/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
-        body: JSON.stringify({ token: pendingToken }),
-      });
-      const data = await r.json().catch(() => ({}));
-      setMessages((m) => [...m, { role: "a", t: data.reply || "Confirmed." }]);
-      setPendingToken(null);
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "a", t: `Confirm failed: ${e.message || e}` }]);
-    }
-    setBusy(false);
-  }
-
-  async function cancelTrade() {
-    setPendingToken(null);
-    setMessages((m) => [...m, { role: "a", t: "Cancelled." }]);
   }
 
   return (
@@ -89,23 +61,6 @@ function AgentChat({ address }: { address: string }) {
           </div>
         ))}
       </div>
-      {pendingToken && (
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={confirmTrade}
-            disabled={busy}
-            className="rounded-md bg-[color:var(--color-mint)] px-4 py-2 text-sm font-semibold text-black hover:bg-[color:var(--color-mint-dark)]"
-          >
-            Execute trade
-          </button>
-          <button
-            onClick={cancelTrade}
-            className="rounded-md border border-[color:var(--color-border-strong)] px-4 py-2 text-sm hover:bg-[color:var(--color-bg-raised)]"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
