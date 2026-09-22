@@ -1,55 +1,122 @@
 @import "tailwindcss";
 
 :root {
+  /* AgentHub brand — cool dark surface, mint accent */
+  --color-bg: #050807;
+  --color-bg-raised: #0a0f0d;
+  --color-bg-elevated: #111815;
+  --color-border: #1c2a24;
+  --color-border-strong: #2a4038;
   --color-mint: #00daa2;
   --color-mint-dark: #00b888;
-  --color-mint-light: #33e5bb;
-  --color-bg: #0a0f0d;
-  --color-bg-elevated: #111815;
-  --color-border: #1e2d27;
-  --color-text: #e8f5f0;
-  --color-text-muted: #7a9e90;
+  --color-mint-light: #4befc5;
+  --color-text: #eef8f3;
+  --color-text-dim: #96b3a8;
+  --color-text-mute: #658173;
+  --color-danger: #ff5d5d;
+  --radius: 12px;
 }
 
 @theme inline {
+  --color-bg: var(--color-bg);
+  --color-bg-raised: var(--color-bg-raised);
+  --color-bg-elevated: var(--color-bg-elevated);
+  --color-border: var(--color-border);
+  --color-border-strong: var(--color-border-strong);
   --color-mint: var(--color-mint);
   --color-mint-dark: var(--color-mint-dark);
   --color-mint-light: var(--color-mint-light);
-  --color-bg: var(--color-bg);
-  --color-bg-elevated: var(--color-bg-elevated);
-  --color-border: var(--color-border);
   --color-text: var(--color-text);
-  --color-text-muted: var(--color-text-muted);
+  --color-text-dim: var(--color-text-dim);
+  --color-text-mute: var(--color-text-mute);
+  --color-danger: var(--color-danger);
 }
 
 * {
   border-color: var(--color-border);
 }
 
+html,
 body {
   background-color: var(--color-bg);
   color: var(--color-text);
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: rgba(0, 218, 162, 0.28);
+  color: #fff;
 }
 
 @layer utilities {
   .text-balance {
     text-wrap: balance;
   }
-  
-  .bg-gradient-mint {
+
+  .brand-mint-text {
+    background: linear-gradient(135deg, var(--color-mint) 0%, var(--color-mint-light) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+
+  .brand-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border-radius: 10px;
+    padding: 12px 22px;
+    font-weight: 600;
+    color: #041b12;
     background: linear-gradient(135deg, var(--color-mint) 0%, var(--color-mint-dark) 100%);
+    box-shadow: 0 8px 24px rgba(0, 218, 162, 0.25);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease;
+    cursor: pointer;
+    border: none;
+    font-size: 15px;
+    width: 100%;
   }
-  
-  .border-mint {
-    border-color: var(--color-mint);
+  .brand-button:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 32px rgba(0, 218, 162, 0.35);
   }
-  
-  .hover\:bg-mint\/10:hover {
-    background-color: rgba(0, 218, 162, 0.1);
+  .brand-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
-  
-  .hover\:border-mint\/50:hover {
-    border-color: rgba(0, 218, 162, 0.5);
+
+  .brand-card {
+    background: var(--color-bg-raised);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+    overflow: hidden;
+  }
+
+  .brand-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 0;
+  }
+  .brand-row + .brand-row {
+    border-top: 1px dashed var(--color-border);
+  }
+
+  .brand-label {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-text-mute);
+  }
+  .brand-value {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--color-text);
+    font-family: ui-monospace, monospace;
   }
 }

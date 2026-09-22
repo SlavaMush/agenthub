@@ -1,14 +1,12 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import EthereumProvider from "@walletconnect/ethereum-provider";
 
-// Set via NEXT_PUBLIC_* env vars at build time on Vercel.
 const WC_PROJECT_ID = process.env.NEXT_PUBLIC_WC_PROJECT_ID || "";
 const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.tradr.gg";
-
-const CHAIN_ID = 8453; // Base
+const CHAIN_ID = 8453;
 const CHAIN_HEX = "0x2105";
 
 type Status =
@@ -19,6 +17,8 @@ type Status =
   | "submitted"
   | "error";
 
+type Step = 1 | 2 | 3;
+
 export default function ConnectInner() {
   const params = useSearchParams();
   const sid = params.get("sid") || "";
@@ -27,10 +27,11 @@ export default function ConnectInner() {
   const [address, setAddress] = useState<string>("");
   const [typedData, setTypedData] = useState<Record<string, unknown> | null>(null);
   const [provider, setProvider] = useState<EthereumProvider | null>(null);
+  const [tx, setTx] = useState<string>("");
 
   useEffect(() => {
     if (!sid) {
-      setError("Missing session id. Open this page from the Telegram bot.");
+      setError("Missing session. Open this page from the Telegram bot.");
       setStatus("error");
       return;
     }
@@ -42,11 +43,11 @@ export default function ConnectInner() {
           projectId: WC_PROJECT_ID,
           chains: [CHAIN_ID],
           showQrModal: true,
-          methods: ["eth_sendTransaction", "eth_signTypedData_v4", "personal_sign"],
+          methods: ["eth_signTypedData_v4", "personal_sign"],
           events: ["accountsChanged", "chainChanged"],
           metadata: {
-            name: "tradr",
-            description: "Delegate signing for tradr bot",
+            name: "AgentHub",
+            description: "Delegate signing for AgentHub agents",
             url: typeof window !== "undefined" ? window.location.origin : "",
             icons: [],
           },
@@ -61,16 +62,12 @@ export default function ConnectInner() {
         setAddress(addr);
         setProvider(prov);
 
-        // Prepare: tell the bot our wallet; receive the typed data to sign.
         const rp = await fetch(`${BOT_API}/api/connect/${sid}/prepare`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ address: addr }),
         });
-        if (!rp.ok) {
-          const t = await rp.text();
-          throw new Error(`prepare failed: ${rp.status} ${t}`);
-        }
+        if (!rp.ok) throw new Error(`prepare failed: ${rp.status}`);
         const p = await rp.json();
         setTypedData(p.typedData);
         setStatus("connected");
@@ -104,45 +101,137 @@ export default function ConnectInner() {
         const t = await r.text();
         throw new Error(`submit failed: ${r.status} ${t}`);
       }
+      const j = await r.json().catch(() => ({}));
+      if (j?.tx) setTx(j.tx);
     } catch (e: any) {
       setError(e?.message ?? String(e));
       setStatus("error");
     }
   }
 
+  const step: Step = status === "pairing" ? 1 : status === "connected" || status === "signing" ? 2 : 3;
+
   return (
-    <main className="mx-auto max-w-md p-6 font-sans">
-      <h1 className="text-2xl font-semibold">Connect your wallet to tradr</h1>
-      <p className="mt-2 text-sm opacity-80">
-        Signing this message authorizes our bot to trade on your behalf on Veranta.
-        Your funds stay in your wallet. You can revoke anytime from delegate.veranta.xyz.
-      </p>
+    <main className="min-h-screen bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
+      <div className="mx-auto max-w-md px-5 pb-16 pt-10">
+        {/* Wordmark */}
+        <div className="flex items-center gap-2">
+          <div className="h-6 w-6 rounded-md bg-gradient-to-br from-[color:var(--color-mint)] to-[color:var(--color-mint-dark)]" />
+          <span className="text-sm font-semibold tracking-wide text-[color:var(--color-text-dim)]">
+            AgentHub
+          </span>
+        </div>
 
-      <div className="mt-6 rounded border p-4">
-        <div className="text-sm">Session</div>
-        <div className="break-all font-mono text-xs">{sid || "—"}</div>
-        <div className="mt-3 text-sm">Wallet</div>
-        <div className="break-all font-mono text-xs">{address || "Not connected"}</div>
-        <div className="mt-3 text-sm">Chain</div>
-        <div className="font-mono text-xs">{CHAIN_HEX} (Base)</div>
+        <h1 className="mt-10 text-3xl font-semibold leading-tight">
+          Connect your wallet.
+          <br />
+          <span className="brand-mint-text">Let agents act for you.</span>
+        </h1>
+
+        <p className="mt-4 text-sm leading-relaxed text-[color:var(--color-text-dim)]">
+          You're signing a <em>delegate</em> permission. Agents may{" "}
+          <span className="text-[color:var(--color-text)]">open and close positions</span>{" "}
+          inside guarded limits you set. They can never withdraw funds — control stays with you.
+        </p>
+
+        {/* Step rail */}
+        <ol className="mt-8 space-y-2">
+          {[
+            { n: 1, label: "Connect wallet", done: step > 1 },
+            { n: 2, label: "Review & sign delegation", done: step > 2 },
+            { n: 3, label: "Return to Telegram", done: status === "submitted" && step === 3 },
+          ].map((s) => (
+            <li key={s.n} className="flex items-center gap-3 text-sm">
+              <span
+                className={`flex h-6 w-6 items-center justify-center rounded-full border text-xs font-semibold ${
+                  s.done
+                    ? "border-[color:var(--color-mint)] bg-[color:var(--color-mint)]/15 text-[color:var(--color-mint)]"
+                    : step === s.n
+                    ? "border-[color:var(--color-mint)] text-[color:var(--color-mint)]"
+                    : "border-[color:var(--color-border-strong)] text-[color:var(--color-text-mute)]"
+                }`}
+              >
+                {s.done ? "✓" : s.n}
+              </span>
+              <span className={s.done ? "text-[color:var(--color-text)]" : "text-[color:var(--color-text-dim)]"}>
+                {s.label}
+              </span>
+            </li>
+          ))}
+        </ol>
+
+        {/* Details card */}
+        <div className="brand-card mt-8 p-5">
+          <div className="brand-row">
+            <span className="brand-label">Session</span>
+            <span className="brand-value break-all text-right">{sid ? sid.slice(0, 10) + "…" : "—"}</span>
+          </div>
+          <div className="brand-row">
+            <span className="brand-label">Wallet</span>
+            <span className="brand-value break-all text-right">
+              {address ? address.slice(0, 6) + "…" + address.slice(-4) : "Not connected"}
+            </span>
+          </div>
+          <div className="brand-row">
+            <span className="brand-label">Network</span>
+            <span className="brand-value">Base (chain {CHAIN_HEX})</span>
+          </div>
+          <div className="brand-row">
+            <span className="brand-label">Permissions</span>
+            <span className="text-[color:var(--color-text)] text-[13px] font-medium">Trade only · No withdrawals</span>
+          </div>
+        </div>
+
+        {/* Action block */}
+        <div className="mt-8">
+          {status === "pairing" && (
+            <div className="flex items-center gap-2 text-sm text-[color:var(--color-text-dim)]">
+              <span className="h-3 w-3 animate-pulse rounded-full bg-[color:var(--color-mint)]" />
+              Pairing via WalletConnect…
+            </div>
+          )}
+          {status === "connected" && (
+            <button onClick={signNow} className="brand-button">
+              Sign delegation
+            </button>
+          )}
+          {status === "signing" && (
+            <div className="text-sm text-[color:var(--color-text-dim)]">
+              Confirm in your wallet…
+            </div>
+          )}
+          {status === "submitted" && (
+            <div className="rounded-lg border border-[color:var(--color-mint)] bg-[color:var(--color-mint)]/10 p-4">
+              <p className="text-sm font-medium text-[color:var(--color-mint)]">
+                Delegation submitted.
+              </p>
+              <p className="mt-1 text-xs text-[color:var(--color-text-dim)]">
+                Return to Telegram. The bot will message you when it's on-chain.
+              </p>
+              {tx && (
+                <p className="mt-2 break-all font-mono text-[11px] text-[color:var(--color-text-mute)]">
+                  tx: {tx.slice(0, 10)}…{tx.slice(-6)}
+                </p>
+              )}
+            </div>
+          )}
+          {status === "error" && (
+            <div className="rounded-lg border border-[color:var(--color-danger)] bg-[color:var(--color-danger)]/10 p-4 text-sm text-[color:var(--color-danger)]">
+              {error || "Something went wrong. Retry from the Telegram bot."}
+            </div>
+          )}
+        </div>
+
+        <p className="mt-10 text-center text-xs text-[color:var(--color-text-mute)]">
+          Revocable anytime. Funds never leave your wallet.
+        </p>
+
+        <footer className="mt-16 border-t border-[color:var(--color-border)] pt-6 text-center">
+          <p className="text-[11px] tracking-wide text-[color:var(--color-text-mute)]">
+            Powered by <span className="text-[color:var(--color-text-dim)]">Veranta</span>
+          </p>
+        </footer>
       </div>
-
-      {status === "connected" && (
-        <button
-          onClick={signNow}
-          className="mt-6 w-full rounded bg-black px-4 py-3 text-white"
-        >
-          Sign delegation
-        </button>
-      )}
-      {status === "pairing" && <p className="mt-6">Pairing via WalletConnect…</p>}
-      {status === "signing" && <p className="mt-6">Check your wallet to sign.</p>}
-      {status === "submitted" && (
-        <p className="mt-6">Submitted. Return to Telegram — the bot will confirm.</p>
-      )}
-      {status === "error" && (
-        <p className="mt-6 text-red-600">Error: {error}</p>
-      )}
     </main>
   );
 }
