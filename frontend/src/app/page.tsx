@@ -134,6 +134,10 @@ function AgentChat({ address }: { address: string }) {
       </form>
       <p className="mt-3 text-[11px] text-[color:var(--color-text-mute)]">
         Agent actions are limited by your on-chain delegate permissions.{" "}
+        <a href="/start" className="text-[color:var(--color-mint)] underline">
+          Enable the agent
+        </a>
+        {" · "}
         <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">
           Also available on Telegram
         </a>
