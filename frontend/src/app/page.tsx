@@ -2,146 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
+import { AgentCard } from "./components/AgentCard";
 
 const BOT_LINK = "https://t.me/tradr_aibot";
 const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
-
-// Chat panel shown after wallet connect
-function AgentChat({ address }: { address: string }) {
-  const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string; tx?: string }>>([]);
-  const [busy, setBusy] = useState(false);
-  const [pendingToken, setPendingToken] = useState<string | null>(null);
-
-  async function send() {
-    if (!input.trim() || busy) return;
-    setBusy(true);
-    const userMsg = input;
-    setMessages((m) => [...m, { role: "u", t: userMsg }]);
-    setInput("");
-
-    try {
-      const r = await fetch(`${BOT_API}/agent/chat`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
-        body: JSON.stringify({ text: userMsg }),
-      });
-      const data = await r.json().catch(() => ({}));
-      if (data.reply) setMessages((m) => [...m, { role: "a", t: data.reply }]);
-      else if (data.error) setMessages((m) => [...m, { role: "a", t: `Error: ${data.error}` }]);
-      if (data.token) setPendingToken(data.token);
-      if (data.needs_connect) setPendingToken(null);
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "a", t: `API unreachable: ${e.message || e}` }]);
-    }
-    setBusy(false);
-  }
-
-  async function confirm() {
-    if (!pendingToken || busy) return;
-    setBusy(true);
-    try {
-      const r = await fetch(`${BOT_API}/agent/confirm`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
-        body: JSON.stringify({ token: pendingToken }),
-      });
-      const data = await r.json().catch(() => ({}));
-      setMessages((m) => [...m, { role: "a", t: data.reply || "?", tx: data.tx }]);
-      setPendingToken(null);
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "a", t: `Confirm failed: ${e.message || e}` }]);
-    }
-    setBusy(false);
-  }
-
-  async function cancel() {
-    setPendingToken(null);
-    setMessages((m) => [...m, { role: "a", t: "Cancelled." }]);
-  }
-
-  return (
-    <div className="brand-card mt-6 w-full max-w-xl p-4 text-left">
-      <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
-        Connected as <span className="text-[color:var(--color-mint)]">{address.slice(0, 6)}…{address.slice(-4)}</span>
-      </p>
-      <div className="mt-3 max-h-56 space-y-2 overflow-y-auto">
-        {messages.length === 0 && (
-          <p className="text-sm text-[color:var(--color-text-dim)]">
-            Try: <code>long $100 ETH 5x with a 10% stop</code> · <code>close everything</code>
-          </p>
-        )}
-        {messages.map((m, i) => (
-          <div
-            key={i}
-            className={`whitespace-pre-line text-sm ${
-              m.role === "u" ? "text-[color:var(--color-text)]" : "text-[color:var(--color-text-dim)] italic"
-            }`}
-          >
-            {m.role === "u" ? "You: " : "Agent: "}{m.t}
-            {m.tx && (
-              <a
-                href={`https://basescan.org/tx/${m.tx}`}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-1 block text-[11px] text-[color:var(--color-mint)] underline"
-              >
-                View tx {m.tx.slice(0, 10)}…
-              </a>
-            )}
-          </div>
-        ))}
-      </div>
-      {pendingToken && (
-        <div className="mt-3 flex gap-2">
-          <button
-            onClick={confirm}
-            disabled={busy}
-            className="rounded-md bg-[color:var(--color-mint)] px-4 py-2 text-sm font-semibold text-black hover:bg-[color:var(--color-mint-dark)]"
-          >
-            {busy ? "Executing…" : "Execute trade"}
-          </button>
-          <button
-            onClick={cancel}
-            disabled={busy}
-            className="rounded-md border border-[color:var(--color-border-strong)] px-4 py-2 text-sm hover:bg-[color:var(--color-bg-raised)]"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          send();
-        }}
-        className="mt-4 flex gap-2"
-      >
-        <input
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="Ask the agent…"
-          className="flex-1 rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-sm outline-none focus:border-[color:var(--color-mint)]"
-        />
-        <button
-          type="submit"
-          disabled={busy || !input.trim()}
-          className="brand-button"
-          style={{ width: "auto", padding: "8px 16px" }}
-        >
-          Send
-        </button>
-      </form>
-      <p className="mt-3 text-[11px] text-[color:var(--color-text-mute)]">
-        Agent actions limited by your on-chain delegate permissions.{" "}
-        <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">
-          Also available on Telegram
-        </a>
-        .
-      </p>
-    </div>
-  );
-}
 
 // Small hydration-safe Reown AppKit connect button.
 function ConnectWalletButton() {
@@ -253,7 +117,7 @@ export default function Home() {
               {delegateOk === null ? (
                 <p className="text-sm text-[color:var(--color-text-mute)]">Checking delegate…</p>
               ) : delegateOk ? (
-                <AgentChat address={address} />
+                <AgentCard address={address} />
               ) : (
                 <div className="mx-auto max-w-xl text-left">
                   <StartInner onDone={refetchDelegate} />
