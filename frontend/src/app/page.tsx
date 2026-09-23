@@ -4,14 +4,14 @@ import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 
 const BOT_LINK = "https://t.me/tradr_aibot";
-const BOT_API = "/api/agent";  // serverless on Vercel
+const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
 
 // Chat panel shown after wallet connect
 function AgentChat({ address }: { address: string }) {
   const [input, setInput] = useState("");
-  const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string }>>([]);
+  const [messages, setMessages] = useState<Array<{ role: "u" | "a"; t: string; tx?: string }>>([]);
   const [busy, setBusy] = useState(false);
-  // pending token flows via Telegram deep-link after Phase 2; UI prefix removed for now.
+  const [pendingToken, setPendingToken] = useState<string | null>(null);
 
   async function send() {
     if (!input.trim() || busy) return;
@@ -21,22 +21,43 @@ function AgentChat({ address }: { address: string }) {
     setInput("");
 
     try {
-      const r = await fetch(`${BOT_API}/chat`, {
+      const r = await fetch(`${BOT_API}/agent/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
         body: JSON.stringify({ text: userMsg }),
       });
       const data = await r.json().catch(() => ({}));
-      if (data.reply) {
-        setMessages((m) => [...m, { role: "a", t: data.reply }]);
-      } else if (data.error) {
-        setMessages((m) => [...m, { role: "a", t: `Error: ${data.error}` }]);
-      }
-      if (data.deeplink) setMessages((m) => [...m, { role: "a", t: `Open in Telegram: ${data.deeplink}` }]);
+      if (data.reply) setMessages((m) => [...m, { role: "a", t: data.reply }]);
+      else if (data.error) setMessages((m) => [...m, { role: "a", t: `Error: ${data.error}` }]);
+      if (data.token) setPendingToken(data.token);
+      if (data.needs_connect) setPendingToken(null);
     } catch (e: any) {
       setMessages((m) => [...m, { role: "a", t: `API unreachable: ${e.message || e}` }]);
     }
     setBusy(false);
+  }
+
+  async function confirm() {
+    if (!pendingToken || busy) return;
+    setBusy(true);
+    try {
+      const r = await fetch(`${BOT_API}/agent/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-Wallet-Address": address },
+        body: JSON.stringify({ token: pendingToken }),
+      });
+      const data = await r.json().catch(() => ({}));
+      setMessages((m) => [...m, { role: "a", t: data.reply || "?", tx: data.tx }]);
+      setPendingToken(null);
+    } catch (e: any) {
+      setMessages((m) => [...m, { role: "a", t: `Confirm failed: ${e.message || e}` }]);
+    }
+    setBusy(false);
+  }
+
+  async function cancel() {
+    setPendingToken(null);
+    setMessages((m) => [...m, { role: "a", t: "Cancelled." }]);
   }
 
   return (
@@ -58,9 +79,37 @@ function AgentChat({ address }: { address: string }) {
             }`}
           >
             {m.role === "u" ? "You: " : "Agent: "}{m.t}
+            {m.tx && (
+              <a
+                href={`https://basescan.org/tx/${m.tx}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-1 block text-[11px] text-[color:var(--color-mint)] underline"
+              >
+                View tx {m.tx.slice(0, 10)}…
+              </a>
+            )}
           </div>
         ))}
       </div>
+      {pendingToken && (
+        <div className="mt-3 flex gap-2">
+          <button
+            onClick={confirm}
+            disabled={busy}
+            className="rounded-md bg-[color:var(--color-mint)] px-4 py-2 text-sm font-semibold text-black hover:bg-[color:var(--color-mint-dark)]"
+          >
+            {busy ? "Executing…" : "Execute trade"}
+          </button>
+          <button
+            onClick={cancel}
+            disabled={busy}
+            className="rounded-md border border-[color:var(--color-border-strong)] px-4 py-2 text-sm hover:bg-[color:var(--color-bg-raised)]"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       <form
         onSubmit={(e) => {
           e.preventDefault();
