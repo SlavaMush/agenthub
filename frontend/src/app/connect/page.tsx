@@ -21,11 +21,17 @@ function ConnectInner() {
   const [typedData, setTypedData] = useState<Record<string, unknown> | null>(null);
   const [tx, setTx] = useState<string>("");
 
-  // Auto-open AppKit modal on mount if not connected
+  // Auto-open AppKit modal on mount if not connected — but only in standard browsers.
+  // Telegram webview + mobile wallet apps (CoinbaseWalletRN) often skip modals.
   useEffect(() => {
     if (!sid) return;
     if (!isConnected) {
-      open();
+      // Check whether we're inside Telegram WebView — can't use TG-specific API but can check UA.
+      const ua = navigator.userAgent.toLowerCase();
+      const inTelegram = ua.includes("telegram");
+      if (!inTelegram) {
+        open();
+      }
     }
   }, [sid, isConnected, open]);
 

@@ -133,11 +133,7 @@ function AgentChat({ address }: { address: string }) {
         </button>
       </form>
       <p className="mt-3 text-[11px] text-[color:var(--color-text-mute)]">
-        Agent actions are limited by your on-chain delegate permissions.{" "}
-        <a href="/start" className="text-[color:var(--color-mint)] underline">
-          Enable the agent
-        </a>
-        {" · "}
+        Agent actions limited by your on-chain delegate permissions.{" "}
         <a href={BOT_LINK} target="_blank" rel="noreferrer" className="text-[color:var(--color-mint)] underline">
           Also available on Telegram
         </a>
@@ -164,8 +160,28 @@ function ConnectWalletButton() {
   );
 }
 
+// Inline dlegation setup component
+import dynamic from "next/dynamic";
+const StartInner = dynamic(
+  () => import("@/app/start/page").then((m) => m.StartInner),
+  { ssr: false }
+);
+
+// Onboarding flow status helper
+function useHasDelegate(address: string | undefined) {
+  const [ready, setReady] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!address) return;
+    fetch(`${BOT_API}/agent/positions`, { headers: { "X-Wallet-Address": address } })
+      .then((r) => setReady(r.ok))
+      .catch(() => setReady(false));
+  }, [address]);
+  return ready;
+}
+
 export default function Home() {
   const { address, isConnected } = useAccount();
+  const delegateOk = useHasDelegate(address);
   return (
     <main className="min-h-screen bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
       {/* Top nav */}
@@ -181,6 +197,12 @@ export default function Home() {
             </a>
             <a href="#agents" className="hidden text-[color:var(--color-text-dim)] hover:text-[color:var(--color-text)] sm:inline">
               Agents
+            </a>
+            <a
+              href="/start"
+              className="text-[color:var(--color-mint)] hover:underline sm:inline"
+            >
+              Enable the agent
             </a>
             <a
               href={BOT_LINK}
@@ -224,7 +246,19 @@ export default function Home() {
               Chat on Telegram
             </a>
           </div>
-          {isConnected && address && <AgentChat address={address} />}
+          {isConnected && address && (
+            <div className="mt-10">
+              {delegateOk === null ? (
+                <p className="text-sm text-[color:var(--color-text-mute)]">Checking delegate…</p>
+              ) : delegateOk ? (
+                <AgentChat address={address} />
+              ) : (
+                <div className="mx-auto max-w-xl text-left">
+                  <StartInner />
+                </div>
+              )}
+            </div>
+          )}
           <p className="mt-6 text-xs text-[color:var(--color-text-mute)]">
             Self-custody. Revocable delegates. Settled on Base.
           </p>

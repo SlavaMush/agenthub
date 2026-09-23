@@ -22,7 +22,7 @@ const DEFAULTS = {
   maxDailyLossUsd: 50,
 };
 
-function StartInner() {
+export function StartInner({ inCard = true }: { inCard?: boolean }) {
   const { address, isConnected } = useAccount();
   const { signTypedDataAsync } = useSignTypedData();
   const [status, setStatus] = useState<Status>("idle");
@@ -90,6 +90,98 @@ function StartInner() {
     }
   }
 
+  const inner = (
+    <>
+      <div className="brand-card p-5">
+        {!isConnected ? (
+          <div>
+            <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
+              Step 0 — connect wallet
+            </p>
+            <div className="mt-3 flex items-center gap-3">
+              <appkit-button />
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
+              Wallet
+            </p>
+            <p className="mt-1 font-mono text-sm text-[color:var(--color-mint)]">{address}</p>
+
+            <div className="mt-5 grid grid-cols-2 gap-3">
+              {(
+                [
+                  ["Max leverage", "maxLeverage"],
+                  ["$ per trade", "maxSizeUsd"],
+                  ["$ per day", "maxDailyUsd"],
+                  ["Max positions", "maxPositions"],
+                  ["Max daily loss ($)", "maxDailyLossUsd"],
+                ] as const
+              ).map(([label, key]) => (
+                <label key={key} className="block">
+                  <span className="text-[11px] text-[color:var(--color-text-mute)]">{label}</span>
+                  <input
+                    type="number"
+                    min={1}
+                    value={policy[key] as number}
+                    onChange={(e) =>
+                      setPolicy((p) => ({ ...p, [key]: parseInt(e.target.value || "1", 10) }))
+                    }
+                    className="mt-1 w-full rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-sm outline-none focus:border-[color:var(--color-mint)]"
+                  />
+                </label>
+              ))}
+            </div>
+
+            <button
+              onClick={run}
+              disabled={
+                status === "preparing" || status === "signing" || status === "submitting"
+              }
+              className="brand-button mt-5 disabled:opacity-50"
+            >
+              {status === "preparing" && "Preparing…"}
+              {status === "signing" && "Sign in wallet…"}
+              {status === "submitting" && "Submitting on-chain…"}
+              {(status === "idle" || status === "error") && "Sign + register delegate"}
+              {status === "done" && "Registered"}
+            </button>
+
+            {note && (
+              <p
+                className={`mt-4 whitespace-pre-line text-xs ${
+                  status === "error" ? "text-red-400" : "text-[color:var(--color-text-mute)]"
+                }`}
+              >
+                {note}
+              </p>
+            )}
+            {status === "done" && (
+              <div className="mt-3">
+                {tx && (
+                  <a
+                    href={`https://basescan.org/tx/${tx}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xs text-[color:var(--color-mint)] underline"
+                  >
+                    View registration tx
+                  </a>
+                )}
+                <p className="mt-2 text-sm text-[color:var(--color-mint)]">
+                  You're live. Start trading.
+                </p>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </>
+  );
+
+  if (!inCard) return inner;
+
   return (
     <main className="min-h-screen bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
       <section className="mx-auto max-w-2xl px-6 py-16">
@@ -113,92 +205,7 @@ function StartInner() {
             never exceeds them.
           </li>
         </ul>
-
-        <div className="brand-card mt-8 p-5">
-          {!isConnected ? (
-            <div>
-              <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
-                Step 0 — connect wallet
-              </p>
-              <div className="mt-3 flex items-center gap-3">
-                <appkit-button />
-              </div>
-            </div>
-          ) : (
-            <>
-              <p className="text-xs uppercase tracking-wider text-[color:var(--color-text-mute)]">
-                Wallet
-              </p>
-              <p className="mt-1 font-mono text-sm text-[color:var(--color-mint)]">{address}</p>
-
-              <div className="mt-5 grid grid-cols-2 gap-3">
-                {(
-                  [
-                    ["Max leverage", "maxLeverage"],
-                    ["$ per trade", "maxSizeUsd"],
-                    ["$ per day", "maxDailyUsd"],
-                    ["Max positions", "maxPositions"],
-                    ["Max daily loss ($)", "maxDailyLossUsd"],
-                  ] as const
-                ).map(([label, key]) => (
-                  <label key={key} className="block">
-                    <span className="text-[11px] text-[color:var(--color-text-mute)]">{label}</span>
-                    <input
-                      type="number"
-                      min={1}
-                      value={policy[key] as number}
-                      onChange={(e) =>
-                        setPolicy((p) => ({ ...p, [key]: parseInt(e.target.value || "1", 10) }))
-                      }
-                      className="mt-1 w-full rounded-md border border-[color:var(--color-border)] bg-[color:var(--color-bg-elevated)] px-3 py-2 text-sm outline-none focus:border-[color:var(--color-mint)]"
-                    />
-                  </label>
-                ))}
-              </div>
-
-              <button
-                onClick={run}
-                disabled={
-                  status === "preparing" || status === "signing" || status === "submitting"
-                }
-                className="brand-button mt-5 disabled:opacity-50"
-              >
-                {status === "preparing" && "Preparing…"}
-                {status === "signing" && "Sign in wallet…"}
-                {status === "submitting" && "Submitting on-chain…"}
-                {(status === "idle" || status === "error") && "Sign + register delegate"}
-                {status === "done" && "Registered"}
-              </button>
-
-              {note && (
-                <p
-                  className={`mt-4 whitespace-pre-line text-xs ${
-                    status === "error" ? "text-red-400" : "text-[color:var(--color-text-mute)]"
-                  }`}
-                >
-                  {note}
-                </p>
-              )}
-              {status === "done" && (
-                <div className="mt-3">
-                  {tx && (
-                    <a
-                      href={`https://basescan.org/tx/${tx}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-xs text-[color:var(--color-mint)] underline"
-                    >
-                      View registration tx
-                    </a>
-                  )}
-                  <p className="mt-2 text-sm text-[color:var(--color-mint)]">
-                    You're live. <Link href="/" className="underline">Start trading.</Link>
-                  </p>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <div className="mt-8">{inner}</div>
       </section>
     </main>
   );
