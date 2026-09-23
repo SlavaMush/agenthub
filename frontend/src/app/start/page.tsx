@@ -22,7 +22,7 @@ const DEFAULTS = {
   maxDailyLossUsd: 50,
 };
 
-export function StartInner({ inCard = true }: { inCard?: boolean }) {
+export function StartInner({ inCard = true, onDone }: { inCard?: boolean; onDone?: () => void }) {
   const { address, isConnected } = useAccount();
   const { signTypedDataAsync } = useSignTypedData();
   const [status, setStatus] = useState<Status>("idle");
@@ -84,6 +84,8 @@ export function StartInner({ inCard = true }: { inCard?: boolean }) {
       setTx(sub.tx || null);
       setStatus("done");
       setNote("Delegate registered on-chain. Policy saved.");
+      // Tell the parent (home) so it flips to chat view
+      if (onDone) setTimeout(onDone, 800);
     } catch (e: any) {
       setStatus("error");
       setNote(e?.shortMessage || e?.message || String(e));

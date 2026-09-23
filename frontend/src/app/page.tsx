@@ -167,21 +167,23 @@ const StartInner = dynamic(
   { ssr: false }
 );
 
-// Onboarding flow status helper
+// Onboarding flow status helper — hits /agent/status (cheap DB probe)
 function useHasDelegate(address: string | undefined) {
   const [ready, setReady] = useState<boolean | null>(null);
+  const [tick, setTick] = useState(0); // bump to re-probe
   useEffect(() => {
     if (!address) return;
-    fetch(`${BOT_API}/agent/positions`, { headers: { "X-Wallet-Address": address } })
-      .then((r) => setReady(r.ok))
+    fetch(`${BOT_API}/agent/status`, { headers: { "X-Wallet-Address": address } })
+      .then((r) => r.json())
+      .then((j) => setReady(Boolean(j?.registered)))
       .catch(() => setReady(false));
-  }, [address]);
-  return ready;
+  }, [address, tick]);
+  return [ready, () => setTick((t) => t + 1)] as const;
 }
 
 export default function Home() {
   const { address, isConnected } = useAccount();
-  const delegateOk = useHasDelegate(address);
+  const [delegateOk, refetchDelegate] = useHasDelegate(address);
   return (
     <main className="min-h-screen bg-[color:var(--color-bg)] text-[color:var(--color-text)]">
       {/* Top nav */}
@@ -254,7 +256,7 @@ export default function Home() {
                 <AgentChat address={address} />
               ) : (
                 <div className="mx-auto max-w-xl text-left">
-                  <StartInner />
+                  <StartInner onDone={refetchDelegate} />
                 </div>
               )}
             </div>
