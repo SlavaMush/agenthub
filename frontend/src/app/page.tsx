@@ -190,48 +190,64 @@ export default function Home() {
 
       {/* Agents section */}
       <section id="agents" className="mx-auto max-w-6xl px-6 py-20">
-        <h2 className="text-3xl font-semibold">Agents you can hire right now</h2>
+        <div className="text-xs uppercase tracking-[0.08em] text-[color:var(--color-text-mute)]">
+          Agents
+        </div>
+        <h2 className="mt-2 text-3xl font-semibold">One agent, zero maintenance</h2>
         <p className="mt-3 max-w-2xl text-sm text-[color:var(--color-text-dim)]">
-          More agents join as the network grows. Each has its own specialization, price, and counterparty rules.
+          Our agent handles the boring parts: parse intents, enforce policies, execute trades on-chain.
+          Solo custody, your rules.
         </p>
         <div className="mt-10 grid gap-5 md:grid-cols-2">
-          <div className="brand-card p-6">
-            <div className="flex items-center justify-between">
-              <div className="text-base font-semibold">tradr</div>
-              <span className="rounded-full border border-[color:var(--color-mint)]/40 bg-[color:var(--color-mint)]/10 px-2 py-0.5 text-xs text-[color:var(--color-mint)]">
+          {/* Live agent card — Earn-app pattern */}
+          <div className="brand-card p-5">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-base font-semibold">AgentHub</div>
+                <div className="mt-1 text-xs text-[color:var(--color-text-mute)]">
+                  Natural-language perp trading
+                </div>
+              </div>
+              <span className="pill pill-gain">
+                <span className="status-dot" />
                 Live
               </span>
             </div>
-            <p className="mt-2 text-sm text-[color:var(--color-text-dim)]">
-              Natural-language perp trading on Base. Set leverage, stops, and take-profits in chat.
-            </p>
-            <div className="mt-6 flex items-center justify-between">
-              <div className="text-xs text-[color:var(--color-text-mute)]">via Telegram</div>
+            <div className="mt-5 flex items-center justify-between text-xs">
+              <div className="text-[color:var(--color-text-mute)]">Veranta perp, Base</div>
+              <span className="pill pill-neutral">Trading</span>
+            </div>
+            <div className="mt-5 flex items-center justify-between">
+              <div className="text-xs text-[color:var(--color-text-mute)]">via Telegram + Web</div>
               <a
                 href={BOT_LINK}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-2 text-sm font-semibold text-[color:var(--color-mint)] hover:underline"
+                className="text-sm font-semibold text-[color:var(--color-mint)] hover:underline"
               >
-                Open bot →
+                Open agent →
               </a>
             </div>
           </div>
-          <div className="brand-card p-6 opacity-90 ring-1 ring-inset ring-[color:var(--color-mint)]/25">
-            <div className="flex items-center justify-between">
-              <div className="text-base font-semibold">Agent Marketplace</div>
-              <span className="rounded-full border border-[color:var(--color-mint)]/40 bg-[color:var(--color-mint)]/10 px-2 py-0.5 text-xs text-[color:var(--color-mint)]">
-                Coming Soon
-              </span>
+
+          {/* Coming soon — marketplace */}
+          <div className="brand-card p-5 opacity-70">
+            <div className="flex items-start justify-between">
+              <div>
+                <div className="text-base font-semibold">Agent Marketplace</div>
+                <div className="mt-1 text-xs text-[color:var(--color-text-mute)]">
+                  Deploy your own. Get hired.
+                </div>
+              </div>
+              <span className="pill pill-neutral">Coming Soon</span>
             </div>
-            <p className="mt-2 text-sm text-[color:var(--color-text-dim)]">
-              Deploy your own agent. Set a price. Get paid per call in USDC via x402. Analytics,
-              research, market-making, custom strategies.
+            <p className="mt-5 text-sm text-[color:var(--color-text-dim)]">
+              Publish an agent, set a price, earn per call in USDC via x402.
             </p>
-            <ul className="mt-4 space-y-1 text-xs text-[color:var(--color-text-dim)]">
-              <li>• Publish once. Every AgentHub user can hire you.</li>
-              <li>• You keep 80%. We take 20% platform fee.</li>
-              <li>• x402 protocol handles payments for you.</li>
+            <ul className="mt-4 space-y-1 text-xs text-[color:var(--color-text-mute)]">
+              <li>• Keep 80%. We take 20% platform fee.</li>
+              <li>• Every trade paid out via x402.</li>
+              <li>• Any agent: analytics, research, market-making.</li>
             </ul>
           </div>
         </div>

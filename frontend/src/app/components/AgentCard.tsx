@@ -1,48 +1,48 @@
 // Earn-app style agent detail: hero balance, perf pill, action bar, tabs, positions/chat
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 
 const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
 
-type Tab = "chat" | "positions" | "activity" | "rules";
+type Tab = "chat" | "positions" | "funding" | "rules";
+
+interface WalletState {
+  usdc_balance: number;
+  usdc_allowance: number;
+}
 
 export function AgentCard({ address }: { address: string }) {
   const [tab, setTab] = useState<Tab>("chat");
   const [positions, setPositions] = useState<null | { items: any[]; err?: string }>(null);
+  const [wallet, setWallet] = useState<null | (WalletState & { err?: string })>(null);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Derived stats (computed from positions for now; v2 pulls from API)
-  const stats = useMemo(() => {
-    if (!positions?.items?.length) {
-      return { total: 0, n_pnl: 0, n_pct: 0, n_positions: 0, paused: false };
-    }
-    const total = positions.items.reduce((a, p: any) => a + (Number(p?.collateral) || 0), 0);
-    const n_positions = positions.items.length;
-    return { total, n_pnl: 0, n_pct: 0, n_positions, paused: false };
-  }, [positions]);
-
-  async function fetchPositions() {
+  async function fetchAll() {
     setRefreshing(true);
     try {
-      const r = await fetch(`${BOT_API}/agent/positions`, {
-        headers: { "X-Wallet-Address": address },
-      });
-      const data = await r.json().catch(() => ({}));
-      if (r.ok) setPositions({ items: data.positions || [] });
-      else setPositions({ items: [], err: data.error || `status ${r.status}` });
+      const [pr, wr] = await Promise.all([
+        fetch(`${BOT_API}/agent/positions`, { headers: { "X-Wallet-Address": address } }),
+        fetch(`${BOT_API}/agent/wallet`,    { headers: { "X-Wallet-Address": address } }),
+      ]);
+      const pd = await pr.json().catch(() => ({}));
+      const wd = await wr.json().catch(() => ({}));
+      if (pr.ok) setPositions({ items: pd.positions || [] });
+      else setPositions({ items: [], err: pd.error || `status ${pr.status}` });
+      if (wr.ok) setWallet({ usdc_balance: Number(wd.usdc_balance || 0), usdc_allowance: Number(wd.usdc_allowance || 0) });
+      else setWallet({ usdc_balance: 0, usdc_allowance: 0, err: wd.error || `status ${wr.status}` });
     } catch (e: any) {
       setPositions({ items: [], err: e.message || String(e) });
+      setWallet({ usdc_balance: 0, usdc_allowance: 0, err: e.message || String(e) });
     }
     setRefreshing(false);
   }
 
-  useEffect(() => {
-    fetchPositions();
-  }, [address]);
+  useEffect(() => { fetchAll(); }, [address]);
 
-  const isProfit = stats.n_pnl >= 0;
+  const hasFunds = (wallet?.usdc_balance || 0) > 0;
+  const allowanceOk = (wallet?.usdc_allowance || 0) >= (wallet?.usdc_balance || 0) * 0.99 && hasFunds;
 
   return (
     <div className="mx-auto w-full max-w-2xl text-left">
@@ -52,7 +52,7 @@ export function AgentCard({ address }: { address: string }) {
           <div className="text-xs uppercase tracking-[0.08em] text-[color:var(--color-text-mute)]">
             Agent
           </div>
-          <div className="mt-1 text-xl font-semibold">Avantis Alpha</div>
+          <div className="mt-1 text-xl font-semibold">AgentHub</div>
           <div className="mt-1 font-mono text-xs text-[color:var(--color-text-dim)]">
             {address.slice(0, 6)}…{address.slice(-4)}
           </div>
@@ -63,21 +63,47 @@ export function AgentCard({ address }: { address: string }) {
         </div>
       </div>
 
-      {/* Hero balance */}
+      {/* Hero: wallet balance + ready state */}
       <div className="brand-card p-6">
         <div className="text-xs uppercase tracking-[0.08em] text-[color:var(--color-text-mute)]">
-          Total collateral
+          Wallet USDC
         </div>
-        <div className="mt-2 balance-xl">${stats.total.toFixed(2)}</div>
-        <div className="mt-3 inline-flex items-center gap-2">
-          <span className={`pill ${isProfit ? "pill-gain" : "pill-loss"}`}>
-            {isProfit ? "+" : "−"}${Math.abs(stats.n_pnl).toFixed(2)} ({isProfit ? "+" : "−"}
-            {Math.abs(stats.n_pct).toFixed(1)}%)
-          </span>
+        <div className="mt-2 balance-xl">
+          {wallet ? `$${wallet.usdc_balance.toFixed(2)}` : "…"}
+        </div>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          {hasFunds && allowanceOk ? (
+            <span className="pill pill-gain">
+              <span className="status-dot" />
+              <span>Ready to trade</span>
+            </span>
+          ) : !hasFunds ? (
+            <span className="pill pill-neutral">
+              <span className="status-dot status-dot-off" />
+              <span>Needs USDC</span>
+            </span>
+          ) : (
+            <span className="pill pill-loss">
+              <span className="status-dot" style={{ background: "var(--color-loss)" }} />
+              <span>Approve USDC</span>
+            </span>
+          )}
           <span className="text-[11px] uppercase tracking-wider text-[color:var(--color-text-mute)]">
-            Since funding
+            Self-custody on Base
           </span>
         </div>
+        {!hasFunds && wallet && (
+          <p className="mt-3 text-xs leading-relaxed text-[color:var(--color-text-dim)]">
+            No deposit needed — AgentHub never holds your funds. Just make sure your connected wallet
+            has USDC on Base. Send from any CEX or bridge in.
+          </p>
+        )}
+        {hasFunds && !allowanceOk && wallet && (
+          <p className="mt-3 text-xs leading-relaxed text-[color:var(--color-text-dim)]">
+            Your USDC isn't approved for the trading contract yet. Send <code>max 1000</code> in the
+            chat below and confirm in your wallet — that's a one-time approval.
+          </p>
+        )}
       </div>
 
       {/* Action bar */}
@@ -88,7 +114,7 @@ export function AgentCard({ address }: { address: string }) {
           </svg>
           Chat
         </button>
-        <button onClick={() => setTab("positions")} disabled={refreshing}>
+        <button onClick={() => { setTab("positions"); fetchAll(); }} disabled={refreshing}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
             <path d="M3 3v18h18" />
             <path d="m7 13 4-6 4 3 5-7" />
@@ -110,7 +136,7 @@ export function AgentCard({ address }: { address: string }) {
           [
             ["chat", "Chat"],
             ["positions", "Positions"],
-            ["activity", "Activity"],
+            ["funding", "Funding"],
             ["rules", "Rules"],
           ] as [Tab, string][]
         ).map(([k, label]) => (
@@ -128,9 +154,9 @@ export function AgentCard({ address }: { address: string }) {
       <div className="mt-4">
         {tab === "chat" && <AgentChat address={address} />}
         {tab === "positions" && (
-          <PositionsPane positions={positions} refreshing={refreshing} onRefresh={fetchPositions} />
+          <PositionsPane positions={positions} refreshing={refreshing} onRefresh={fetchAll} />
         )}
-        {tab === "activity" && <ActivityPane />}
+        {tab === "funding" && <FundingPane address={address} wallet={wallet} onRefresh={fetchAll} />}
         {tab === "rules" && <RulesPane address={address} />}
       </div>
 
@@ -329,21 +355,107 @@ function PositionsPane({
   );
 }
 
-function ActivityPane() {
+function FundingPane({
+  address,
+  wallet,
+  onRefresh,
+}: {
+  address: string;
+  wallet: (WalletState & { err?: string }) | null;
+  onRefresh: () => void;
+}) {
+  const hasFunds = (wallet?.usdc_balance || 0) > 0;
+  const allowanceOk = (wallet?.usdc_allowance || 0) >= (wallet?.usdc_balance || 0) * 0.99 && hasFunds;
+
   return (
     <div className="brand-card p-4">
-      <div className="brand-label">Activity</div>
-      <div className="py-6 text-center text-sm text-[color:var(--color-text-dim)]">
-        Trades and events will show up here as they happen.
+      <div className="mb-3 flex items-center justify-between">
+        <div className="brand-label">Wallet</div>
+        <button
+          onClick={onRefresh}
+          className="text-xs text-[color:var(--color-mint)] hover:underline"
+        >
+          Refresh
+        </button>
       </div>
-      <div className="report-card">
+      <div className="space-y-3">
+        <div className="flex items-center justify-between border-b border-[color:var(--color-border)] pb-3">
+          <div>
+            <div className="text-xs text-[color:var(--color-text-mute)]">USDC on Base</div>
+            <div className="mt-1 balance-lg">
+              {wallet ? `$${wallet.usdc_balance.toFixed(2)}` : "…"}
+            </div>
+          </div>
+          <span className={`pill ${hasFunds ? "pill-gain" : "pill-neutral"}`}>
+            {hasFunds ? "Funded" : "Needs USDC"}
+          </span>
+        </div>
+        <div className="flex items-center justify-between border-b border-[color:var(--color-border)] pb-3">
+          <div>
+            <div className="text-xs text-[color:var(--color-text-mute)]">Approved for trading</div>
+            <div className="mt-1 font-mono text-sm">
+              {wallet ? `$${wallet.usdc_allowance.toFixed(2)}` : "…"}
+            </div>
+          </div>
+          <span className={`pill ${allowanceOk ? "pill-gain" : hasFunds ? "pill-loss" : "pill-neutral"}`}>
+            {allowanceOk ? "Approved" : hasFunds ? "Approve needed" : "Pending funds"}
+          </span>
+        </div>
+      </div>
+
+      <div className="mt-5 space-y-3 text-sm text-[color:var(--color-text-dim)]">
         <div>
-          <div className="text-sm font-semibold">Daily report</div>
+          <div className="font-semibold text-[color:var(--color-text)]">Get USDC on Base</div>
+          <ul className="mt-2 list-disc space-y-1 pl-5">
+            <li>
+              <span className="text-[color:var(--color-text)]">Coinbase:</span> buy USDC → withdraw to{" "}
+              <code className="font-mono text-xs text-[color:var(--color-mint)]">
+                {address.slice(0, 6)}…{address.slice(-4)}
+              </code>{" "}
+              on Base network
+            </li>
+            <li>
+              <span className="text-[color:var(--color-text)]">Bridge:</span> from any chain via{" "}
+              <a
+                href="https://bridge.base.org"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[color:var(--color-mint)] underline"
+              >
+                bridge.base.org
+              </a>
+            </li>
+            <li>
+              <span className="text-[color:var(--color-text)]">On-ramp:</span> card → Base USDC via{" "}
+              <a
+                href="https://www.coinbase.com/onramp"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[color:var(--color-mint)] underline"
+              >
+                Coinbase Onramp
+              </a>
+            </li>
+          </ul>
+        </div>
+        {hasFunds && !allowanceOk && (
+          <div className="rounded-md border border-[color:var(--color-loss-border)] bg-[color:var(--color-loss-bg)] p-3 text-xs">
+            <div className="font-semibold text-[color:var(--color-loss)]">Action needed</div>
+            <p className="mt-1 text-[color:var(--color-text-dim)]">
+              Once to allow the trading contract to use your USDC: send <code>max 1000</code> in the Chat
+              tab and confirm in your wallet.
+            </p>
+          </div>
+        )}
+      </div>
+
+      <div className="report-card mt-5">
+        <div>
+          <div className="text-sm font-semibold">No deposits, no custody</div>
           <div className="text-xs text-[color:var(--color-text-dim)]">
-            A summary letter once every 24h
+            Your USDC stays in your wallet. Agent can trade but can't withdraw.
           </div>
         </div>
-        <div className="text-xs text-[color:var(--color-text-mute)]">Coming soon</div>
       </div>
     </div>
   );
