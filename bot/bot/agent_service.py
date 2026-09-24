@@ -32,13 +32,27 @@ def mount(app: web.Application, executor: Executor) -> None:
 
 
 async def handle_status(request: web.Request) -> web.Response:
-    """Cheap probe for frontend: does this wallet have a saved AgentHub policy?
+    """Cheap probe for frontend: does this wallet have an ACTIVE on-chain delegate?
 
-    We don't touch the chain — just whether onboarding's DB write happened.
+    `registered` is True only when we have an ACTIVE DelegateLink — that means
+    the user's sign + relay both succeeded and the backend has a private key on
+    file to execute as delegate. An INACTIVE link means they prepared but never
+    finished (or submit failed) → UX should re-prompt onboarding.
     """
     user, policy = get_user_by_wallet(request.headers.get("X-Wallet-Address", ""))
+    active_link = False
+    if user:
+        from .db import DelegateLink, get_session
+        from sqlmodel import select
+        with get_session() as s:
+            active_link = bool(s.exec(
+                select(DelegateLink).where(
+                    DelegateLink.user_id == user.id,
+                    DelegateLink.active == True,  # noqa: E712
+                )
+            ).first())
     return web.json_response({
-        "registered": bool(user and policy),
+        "registered": active_link,
         "paused": bool(policy and policy.paused),
     })
 
@@ -54,7 +68,25 @@ async def handle_chat(request: web.Request) -> web.Response:
     if not user or not policy:
         return web.json_response(
             {
-                "reply": "Connect your wallet at agenthub.gg/start first.",
+                "reply": "Connect + finish onboarding at agenthub.gg first. We'll ask you to sign once.",
+                "needs_connect": True,
+            },
+            status=401,
+        )
+
+    # Incomplete onboarding gate — DB user exists but no ACTIVE delegate link.
+    from .db import DelegateLink, get_session
+    from sqlmodel import select
+    with get_session() as s:
+        active = bool(s.exec(
+            select(DelegateLink).where(
+                DelegateLink.user_id == user.id, DelegateLink.active == True,  # noqa: E712
+            )
+        ).first())
+    if not active:
+        return web.json_response(
+            {
+                "reply": "Onboarding is half-done on your side. Hit the home page, re-sign, and we'll finish the delegate.",
                 "needs_connect": True,
             },
             status=401,

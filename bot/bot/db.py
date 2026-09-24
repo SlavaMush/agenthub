@@ -73,15 +73,20 @@ def init_db(url: str | None = None):
     if url:
         engine = create_engine(url, echo=False)
     SQLModel.metadata.create_all(engine)
-    # Idempotent column adds — SQLite's CREATE TABLE IF NOT EXISTS doesn't update
-    # existing tables. Adding 'pending_digest' + widening 'active' default to False.
+    # Idempotent column adds for older DBs — CREATE TABLE IF NOT EXISTS doesn't mutate
+    # existing tables, so ALTER each missing column individually.
     import sqlite3
     db_path = url.replace("sqlite:///", "") if url else "bot.db"
     try:
         with sqlite3.connect(db_path) as c:
             cols = [r[1] for r in c.execute("PRAGMA table_info(delegatelink)").fetchall()]
-            if "pending_digest" not in cols:
-                c.execute("ALTER TABLE delegatelink ADD COLUMN pending_digest TEXT DEFAULT ''")
+            additions = {
+                "pending_digest": "ALTER TABLE delegatelink ADD COLUMN pending_digest TEXT DEFAULT ''",
+                "encrypted_key_material": "ALTER TABLE delegatelink ADD COLUMN encrypted_key_material TEXT DEFAULT ''",
+            }
+            for col, sql in additions.items():
+                if col not in cols:
+                    c.execute(sql)
             c.commit()
     except sqlite3.OperationalError:
         pass  # table doesn't exist yet
