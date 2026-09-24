@@ -143,72 +143,48 @@ def get_session(sid: str) -> Optional[ConnectSession]:
 
 
 class RelayerSubmitter:
-    """Submit signed intents through the platform relayer key."""
+    """Submit signed intents through the platform relayer key.
+
+    Wraps `bot.delegate_registration.submit_delegate_registration` for backwards-compat.
+    """
 
     def __init__(self, platform_private_key: str, network: str):
         self._pk = platform_private_key
         self._network = network
 
     async def set_delegate_with_sig(
-        self, *, trader: str, delegate: str, expiry_seconds: int, signature: str
+        self, *, trader: str, delegate: str, expiry_seconds: int, signature: str,
+        encoded_intent: str | None = None,
     ) -> str:
-        """Build the DelegateReq intent, submit with the given signature."""
-        import time as _t
+        """Build the DelegateReq intent (or reuse the provided one) and submit.
 
-        # Build the typed-data payload (not signed by us; we already have user's sig).
-        async with AsyncVeranta(private_key=self._pk, network=self._network) as c:
-            acc = c.account
-            # Intent builder — no signing, just the payload.
-            payload: IntentPayload = await acc._txb.intent(
-                "/v2/intents/delegate-set",
-                trader=trader,
-                delegate=delegate,
-                expirySeconds=expiry_seconds,
-            )
-            # Sanity-check that the expected digest matches what the relayer expects.
-            # Then construct the calldata: setDelegateWithSig(sig, encodedIntent).
-            from eth_abi import encode as abi_encode
-            from eth_utils import keccak, to_bytes
+        If encoded_intent is provided (from /prepare), reuses it instead of
+        rebuilding — the digest was already signed against it.
+        """
+        from .delegate_registration import submit_delegate_registration
+        from veranta_sdk import AsyncVeranta
 
-            selector = keccak(text="setDelegateWithSig(bytes,bytes)")[:4]
-            calldata_no_sel = abi_encode(
-                ["bytes", "bytes"],
-                [to_bytes(hexstr=signature), to_bytes(hexstr=payload.encoded_intent)],
-            )
-            full_calldata = "0x" + (selector + calldata_no_sel).hex()
+        # If the caller pre-built the intent (web /start flow), use it. Otherwise
+        # (legacy TG flow), build it now via the relayer's signing key.
+        built_intent: str = encoded_intent or ""
+        if not built_intent:
+            async with AsyncVeranta(private_key=self._pk, network=self._network) as c:
+                payload = await c.account._txb.intent(
+                    "/v2/intents/delegate-set",
+                    trader=trader, delegate=delegate, expirySeconds=expiry_seconds,
+                )
+                built_intent = payload.encoded_intent
 
-            # Build relayer tx using the platform key (as the calling EOA).
-            # The Veranta SDK routes by sending the calldata through the relayer.
-            # We mimic register_delegate's relayer path but with the user's sig.
-            meta = await acc._get_meta()
-            router = meta["addresses"]["tradingRouter"]
-
-            # Build and execute via the engine (which will take the relayer route).
-            # The engine.submit_intent_batch expects market intents; for delegate
-            # reg we instead call the relayer endpoint directly.
-            from veranta_sdk.execution.relayer import RelayerClient  # type: ignore
-
-            relayer: RelayerClient = c.engine.relayer  # type: ignore[attr-defined]
-            # Send a generic "type4 wrapped" tx? Easiest: use engine._route by
-            # manually invoking the passthrough route through account internals.
-            # For now, call relayer.create with calldata = full setDelegateWithSig
-            # targeting the router.
-            from veranta_sdk.types import CallData
-
-            from_addr = acc._engine.signer.address if acc._engine.signer else acc.trader
-            chain_id = await acc._engine.chain_id()
-            call = CallData.model_validate(
-                {
-                    "to": router,
-                    "from": from_addr,
-                    "data": full_calldata,
-                    "value": "0x0",
-                    "chainId": chain_id,
-                    "description": f"setDelegateWithSig({delegate}) for {trader}",
-                }
-            )
-            receipt = await acc._route(call, wait=True)
-            return getattr(receipt, "tx_hash", str(receipt))
+        res = await submit_delegate_registration(
+            trader=trader,
+            delegate=delegate,
+            expiry_timestamp=expiry_seconds,
+            signature=signature,
+            encoded_intent=built_intent,
+            relayer_private_key=self._pk,
+            network=self._network,
+        )
+        return res.tx_hash
 
 
 async def handle_intent(request: web.Request) -> web.Response:

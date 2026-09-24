@@ -51,9 +51,10 @@ class DelegateLink(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id")
     delegate_address: str
-    encrypted_key_material: str = ""  # Fernet-encrypted delegate privkey (empty = platform mode)
+    encrypted_key_material: str = ""  # AES-encrypted delegate privkey (empty = not yet saved)
     expiry_unix: int = 0
-    active: bool = True
+    active: bool = False  # set True once the on-chain registerDelegate lands
+    pending_digest: str = ""  # EIP-712 digest we asked the user to sign (pre-submit)
 
 
 class ConnectSessionRow(SQLModel, table=True):
@@ -72,6 +73,18 @@ def init_db(url: str | None = None):
     if url:
         engine = create_engine(url, echo=False)
     SQLModel.metadata.create_all(engine)
+    # Idempotent column adds — SQLite's CREATE TABLE IF NOT EXISTS doesn't update
+    # existing tables. Adding 'pending_digest' + widening 'active' default to False.
+    import sqlite3
+    db_path = url.replace("sqlite:///", "") if url else "bot.db"
+    try:
+        with sqlite3.connect(db_path) as c:
+            cols = [r[1] for r in c.execute("PRAGMA table_info(delegatelink)").fetchall()]
+            if "pending_digest" not in cols:
+                c.execute("ALTER TABLE delegatelink ADD COLUMN pending_digest TEXT DEFAULT ''")
+            c.commit()
+    except sqlite3.OperationalError:
+        pass  # table doesn't exist yet
 
 
 def get_session() -> Session:
