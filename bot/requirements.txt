@@ -1,0 +1,10 @@
+veranta-sdk
+fastapi
+uvicorn
+sqlmodel
+python-telegram-bot
+pytest
+pytest-asyncio
+httpx
+python-dotenv
+pydantic
