@@ -112,16 +112,16 @@ async def chat(text: str, user: User, policy: Policy) -> ChatResult:
 
     min_notional = float(getattr(pair, "min_lev_pos_usdc", 0) or 0)
     if min_notional and est_notional < min_notional:
-        suggestion = max(1, int(min_notional / max(1.0, leverage)) + 1)
+        # Minimum collateral needed at user's chosen leverage.
+        suggestion = max(1, int((min_notional + 0.99) / max(0.001, leverage)))
         return ChatResult(
             reply=(
                 f"That size is below the protocol minimum: ${collateral:g} × {leverage:g}x = "
-                f"~${est_notional:g} notional. {pair.from_symbol}/{pair.to_symbol} requires "
-                f"at least ${min_notional:g} notional (= collateral × leverage).\n\n"
-                f"Ways to proceed:\n"
+                f"~${est_notional:g} notional. The {pair.from_symbol}/{pair.to_symbol} market "
+                f"needs at least ${min_notional:g} notional (= collateral × leverage).\n\n"
+                f"Your policy cap is fine — this is the market's own rule. Try:\n"
                 f"  • `long ${suggestion} {intent.pair} {leverage:g}x`\n"
-                f"  • `long ${int(min_notional)} {intent.pair} 1x`\n"
-                f"  • Or raise your per-trade cap in settings if blocked by policy."
+                f"  • `long ${int(min_notional)} {intent.pair} 1x`"
             ),
             policy_denied=True,
         )

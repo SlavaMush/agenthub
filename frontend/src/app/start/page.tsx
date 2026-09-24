@@ -117,8 +117,8 @@ export function StartInner({ inCard = true, onDone }: { inCard?: boolean; onDone
               {(
                 [
                   ["Max leverage", "maxLeverage"],
-                  ["$ per trade", "maxSizeUsd"],
-                  ["$ per day", "maxDailyUsd"],
+                  ["Max $ per position", "maxSizeUsd"],  // max collateral per open
+                  ["$ per day (notional)", "maxDailyUsd"],
                   ["Max positions", "maxPositions"],
                   ["Max daily loss ($)", "maxDailyLossUsd"],
                 ] as const
@@ -137,6 +137,10 @@ export function StartInner({ inCard = true, onDone }: { inCard?: boolean; onDone
                 </label>
               ))}
             </div>
+
+            <p className="mt-3 text-[11px] leading-relaxed text-[color:var(--color-text-mute)]">
+              ETH/USD requires ≥ $100 notional (= collateral × leverage). Example: $20 × 5x = $100.
+            </p>
 
             <button
               onClick={run}
