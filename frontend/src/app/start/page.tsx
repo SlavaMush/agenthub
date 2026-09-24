@@ -15,7 +15,9 @@ type Status =
   | "error";
 
 const DEFAULTS = {
-  maxLeverage: 3,
+  // On-chain minimum notional for ETH perp is 100 USDC. Set default trade size to
+  // a reasonable 100 USDC notional ↔ 20 USDC collateral at 5x.
+  maxLeverage: 5,
   maxSizeUsd: 100,
   maxDailyUsd: 500,
   maxPositions: 3,
