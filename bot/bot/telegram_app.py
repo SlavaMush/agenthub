@@ -48,7 +48,7 @@ async def on_button(upd: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if q.data == "x" or not u:
         return await q.edit_message_text("Cancelled.")
     await q.edit_message_text(f"{q.message.text}\n\nExecuting…")
-    await q.edit_message_text(await core.confirm(u, q.data[2:]))
+    await q.edit_message_text((await core.confirm(u, q.data[2:]))[0])
 
 
 def build(token: str) -> Application:

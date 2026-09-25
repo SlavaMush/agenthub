@@ -104,6 +104,7 @@ export default function Home() {
         : me.active ? <Dashboard me={me} token={token} run={run} busy={busy} refresh={refresh} />
         : <Setup me={me} token={token} run={run} busy={busy} refresh={refresh} />}
       {me?.referralOwner && token && <RegisterReferral me={me} token={token} run={run} busy={busy} refresh={refresh} />}
+      {me && token && <AgentAccess token={token} run={run} busy={busy} signOut={() => { storage.set(key, null); setToken(null); }} />}
 
       {err && <p className="mt-4 whitespace-pre-line break-words rounded-xl bg-loss/10 p-3 text-sm text-loss">{err}</p>}
       <footer className="mt-auto pt-10 text-center text-xs text-mute">
@@ -290,6 +291,40 @@ function Approve({ me, run, busy, refresh }: Props) {
           className="w-28 rounded-lg border border-line bg-black px-3 text-base outline-none focus:border-mint" />
         <button className={btn} disabled={!!busy || !(Number(amount) > 0)} onClick={approve}>{busy || `Approve $${amount}`}</button>
       </div>
+    </section>
+  );
+}
+
+// Lets the user hand a 30-day token to an MCP client or an x402-paying agent (e.g. a Bankr skill).
+function AgentAccess({ token, run, busy, signOut }: { token: string; run: Run; busy: string; signOut: () => void }) {
+  const [agent, setAgent] = useState<{ token: string; expires: number } | null>(null);
+  const mcp = agent && JSON.stringify({ mcpServers: { agenthub: { type: "http", url: `${API}/mcp`, headers: { Authorization: `Bearer ${agent.token}` } } } }, null, 2);
+  return (
+    <section className={`${card} mt-4 space-y-3 text-sm`}>
+      <h3 className="font-semibold">Connect an agent</h3>
+      <p className="text-dim">
+        Let an AI agent (Claude, Cursor, Bankr…) trade for this wallet inside your limits. It gets a 30-day token; it can quote,
+        trade and manage positions but can never move funds. Agents calling the HTTP API pay $0.01 per executed trade via x402.
+      </p>
+      {!agent ? (
+        <button className={ghost} disabled={!!busy} onClick={() => run("Creating token…", async () => setAgent(await api("/api/agent/token", token, {})))}>
+          Create agent token
+        </button>
+      ) : (
+        <>
+          <p className="text-loss">Treat this like a password: anyone holding it can trade for you until it expires or you revoke it.</p>
+          <label className="block text-xs text-mute">MCP config (Claude Code, Cursor, any MCP client)
+            <textarea readOnly rows={9} value={mcp!} onFocus={(e) => e.target.select()}
+              className="mt-1 w-full rounded-lg border border-line bg-black p-2 font-mono text-xs text-white" />
+          </label>
+          <button className={ghost} onClick={() => navigator.clipboard?.writeText(mcp!)}>Copy MCP config</button>
+          <p className="text-xs text-mute">HTTP API: {API}/api/* with header <code>Authorization: Bearer &lt;token&gt;</code>; paid execution at <code>POST /api/agent/execute</code>.</p>
+        </>
+      )}
+      <button className="block text-xs text-loss underline disabled:opacity-50" disabled={!!busy}
+        onClick={() => run("Revoking…", async () => { await api("/api/agent/revoke", token, {}); signOut(); })}>
+        Revoke all agent tokens (signs you out everywhere)
+      </button>
     </section>
   );
 }

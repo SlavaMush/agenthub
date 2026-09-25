@@ -31,6 +31,7 @@ class User(SQLModel, table=True):
     delegate_key: str = ""  # encrypted key of the ACTIVE on-chain delegate
     delegate_expiry: int = 0
     referred: bool = False  # linked to our referral code
+    token_version: int = 0  # bump to revoke every session/agent token
     paused: bool = False
     max_leverage: float = 5
     max_collateral: float = 100
@@ -113,3 +114,7 @@ def read_token(token: str, prefix: str) -> Optional[str]:
 
 
 SQLModel.metadata.create_all(engine)
+with engine.begin() as _c:  # additive column migrations for existing SQLite files
+    _cols = {r[1] for r in _c.exec_driver_sql("PRAGMA table_info(user)")}
+    if "token_version" not in _cols:
+        _c.exec_driver_sql("ALTER TABLE user ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")

@@ -6,7 +6,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 
 from bot import db
-from bot.api import recover
+from bot.account import recover
 from bot.core import chat, parse
 
 

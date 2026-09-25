@@ -4,4 +4,9 @@ python-telegram-bot>=22
 sqlmodel
 python-dotenv
 pycryptodome
+x402[evm]==2.24.0
+mcp<2
+pyjwt
+cryptography
+uvicorn
 pytest

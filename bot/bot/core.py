@@ -186,35 +186,36 @@ async def chat(u: User, text: str) -> tuple[str, Optional[str]]:
     return reply, token
 
 
-async def confirm(u: User, token: str) -> str:
+async def confirm(u: User, token: str) -> tuple[str, bool]:
+    """Execute a stashed quote. Returns (reply, executed)."""
     exp, owner, it = _pending.pop(token, (0, None, None))
     if owner != u.id or exp < time.time():
-        return "Quote expired — send it again."
+        return "Quote expired — send it again.", False
     try:
         if it.action == "open":
             reply, ok = await quote(u, it)  # re-check: prices, balances and caps may have moved
             if not ok:
-                return reply
+                return reply, False
         async with client(u, signing=True, **await fees()) as c:
             if it.action == "open":
                 args, kw = (it.pair, it.side, it.collateral, it.leverage), {"take_profit": it.tp, "stop_loss": it.sl}
                 r = await (c.trade.limit_open(*args, it.price, stop=it.stop, **kw) if it.price else c.trade.market_open(*args, **kw))
                 journal(u.id, "open", notional=it.collateral * it.leverage, pair=it.pair, side=it.side, tx=r.tx_hash)
-                return f"{'Limit order placed' if it.price else 'Filled'}: {it.side} {it.pair} ${it.collateral:g} @ {it.leverage:g}x\ntx {r.tx_hash}"
+                return f"{'Limit order placed' if it.price else 'Filled'}: {it.side} {it.pair} ${it.collateral:g} @ {it.leverage:g}x\ntx {r.tx_hash}", True
             idx = None if it.pair == "*" else (await c.markets.pair(it.pair)).index
             data = await c.account.positions()
             if it.action == "cancel":
                 orders = [o for o in data.limit_orders if idx is None or o.pair_index == idx]
                 for o in orders:
                     await c.trade.cancel_limit_order(o.pair_index, o.index)
-                return f"Cancelled {len(orders)} order(s)."
+                return f"Cancelled {len(orders)} order(s).", True
             ps = [p for p in data.positions if idx is None or p.pair_index == idx]
             if not ps:
-                return "No matching open positions."
+                return "No matching open positions.", False
             if it.action == "margin":
                 p = ps[-1]
                 await c.trade.update_margin(p.pair_index, p.index, "deposit" if it.side == "add" else "withdraw", it.collateral)
-                return f"Margin updated on {it.pair}."
+                return f"Margin updated on {it.pair}.", True
             no_fee = {}  # never let an exhausted fee allowance trap a user in a position
             if it.action == "close" and (rate := (await fees()).get("builder_fee_percent")):
                 owed = sum(float(p.position_size) for p in ps) * it.pct / 100 * rate / 100
@@ -226,11 +227,11 @@ async def confirm(u: User, token: str) -> str:
                 else:
                     r = await c.trade.market_close(p.pair_index, p.index, float(p.collateral) * it.pct / 100, **no_fee)
                     journal(u.id, "close", pnl=pnl * it.pct / 100, pair=p.pair_index, tx=r.tx_hash)
-            return f"{'Updated' if it.action == 'tpsl' else 'Closed'} {len(ps)} position(s)."
+            return f"{'Updated' if it.action == 'tpsl' else 'Closed'} {len(ps)} position(s).", True
     except Exception as e:
         log.exception("execute failed")
         journal(u.id, "error", err=f"{type(e).__name__}: {e}"[:300])
-        return f"Failed: {str(e)[:200]} — check positions before retrying."
+        return f"Failed: {str(e)[:200]} — check positions before retrying.", False
 
 
 async def portfolio(u: User) -> dict:

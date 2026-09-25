@@ -3,7 +3,8 @@ api.agenthub.gg {
 	header {
 		Access-Control-Allow-Origin "https://agenthub.gg"
 		Access-Control-Allow-Methods "GET, POST, OPTIONS"
-		Access-Control-Allow-Headers "Content-Type, Authorization"
+		Access-Control-Allow-Headers "Content-Type, Authorization, Payment-Signature, X-Payment, Mcp-Session-Id, Mcp-Protocol-Version"
+		Access-Control-Expose-Headers "Payment-Required, Payment-Response"
 		Access-Control-Max-Age "86400"
 		Vary Origin
 		Strict-Transport-Security "max-age=31536000"
@@ -14,6 +15,7 @@ api.agenthub.gg {
 		@options method OPTIONS
 		respond @options 204
 		reverse_proxy /api/* 127.0.0.1:8791
+		reverse_proxy /mcp* 127.0.0.1:8792
 		respond 404
 	}
 }
