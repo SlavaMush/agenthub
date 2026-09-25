@@ -1,10 +1,7 @@
-veranta-sdk
-fastapi
-uvicorn
+veranta-sdk==2.2.0
+aiohttp
+python-telegram-bot>=22
 sqlmodel
-python-telegram-bot
-pytest
-pytest-asyncio
-httpx
 python-dotenv
-pydantic
+pycryptodome
+pytest

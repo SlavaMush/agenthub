@@ -1,96 +1,109 @@
-"""Database models: users, policies, journal, delegate links."""
-from datetime import datetime, timezone
+"""Config, persistence, secret encryption and signed tokens."""
+import hashlib
+import hmac
+import json
+import os
+import time
 from typing import Optional
 
-from sqlalchemy import UniqueConstraint
-from sqlmodel import Field, Relationship, SQLModel, create_engine, Session
+from Crypto.Cipher import AES
+from dotenv import load_dotenv
+from sqlmodel import Field, Session, SQLModel, create_engine, select
 
-DATABASE_URL = "sqlite:///./bot.db"
-engine = create_engine(DATABASE_URL, echo=False)
-
-
-def utcnow() -> datetime:
-    return datetime.now(timezone.utc)
+load_dotenv()
+NETWORK = os.environ.get("VERANTA_NETWORK", "testnet")
+WEB_URL = os.environ.get("WEB_URL", "https://agenthub.gg")
+PORT = int(os.environ.get("API_PORT", "8791"))
+MASTER = os.environ["VERANTA_CONNECT_MASTER_KEY"].encode()
+BUILDER = {"builder_code": os.environ["VERANTA_BUILDER_CODE"],
+           "builder_fee_percent": float(os.environ.get("VERANTA_BUILDER_FEE_PERCENT") or 0)} \
+    if os.environ.get("VERANTA_BUILDER_CODE") else {}
+engine = create_engine(os.environ.get("DATABASE_URL", "sqlite:///./bot.db"))
+POLICY = ("max_leverage", "max_collateral", "max_daily_notional", "max_positions", "max_daily_loss")
 
 
 class User(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
+    wallet: str = Field(unique=True, index=True)  # lowercase EOA
     telegram_id: Optional[str] = Field(default=None, index=True)
-    x_handle: Optional[str] = Field(default=None, index=True)
-    wallet_address: str = Field(index=True)
-    usdc_approved: bool = False
-    created_at: datetime = Field(default_factory=utcnow)
-
-    policy: Optional["Policy"] = Relationship(back_populates="user")
-
-
-class Policy(SQLModel, table=True):
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", unique=True)
-    max_leverage: float = 5.0
-    max_collateral_per_trade: float = 250.0
-    max_notional_per_day: float = 500.0
-    max_open_positions: int = 3
-    daily_loss_limit: float = 100.0
+    delegate_key: str = ""  # encrypted key of the ACTIVE on-chain delegate
+    delegate_expiry: int = 0
+    pending_key: str = ""   # encrypted key awaiting the trader's DelegateReq signature
+    pending_digest: str = ""
+    pending_intent: str = ""
     paused: bool = False
+    max_leverage: float = 5
+    max_collateral: float = 100
+    max_daily_notional: float = 500
+    max_positions: int = 3
+    max_daily_loss: float = 50
 
-    user: Optional[User] = Relationship(back_populates="policy")
+    @property
+    def active(self) -> bool:
+        return bool(self.delegate_key) and self.delegate_expiry > time.time()
 
 
 class Journal(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id", index=True)
-    ts: datetime = Field(default_factory=utcnow)
-    kind: str  # quote | confirm | execute | error | policy_denial
-    payload: str  # JSON
+    user_id: int = Field(index=True)
+    ts: float = Field(default_factory=time.time, index=True)
+    kind: str
+    notional: float = 0  # opened size, counts toward the daily cap
+    pnl: float = 0       # realized estimate on our closes, counts toward the loss limit
+    data: str = "{}"
 
 
-class DelegateLink(SQLModel, table=True):
-    __table_args__ = (UniqueConstraint("user_id", "delegate_address"),)
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    user_id: int = Field(foreign_key="user.id")
-    delegate_address: str
-    encrypted_key_material: str = ""  # AES-encrypted delegate privkey (empty = not yet saved)
-    expiry_unix: int = 0
-    active: bool = False  # set True once the on-chain registerDelegate lands
-    pending_digest: str = ""  # EIP-712 digest we asked the user to sign (pre-submit)
+def get_user(**by) -> Optional[User]:
+    with Session(engine) as s:
+        return s.exec(select(User).filter_by(**by)).first()
 
 
-class ConnectSessionRow(SQLModel, table=True):
-    """Server-side state for the /connect?sid=... flow. Survives restarts."""
-    sid: str = Field(primary_key=True)
-    telegram_id: str = Field(index=True)
-    delegate_address: str
-    delegate_private_key: str  # ephemeral, encrypted by VERANTA_CONNECT_MASTER_KEY at rest
-    user_wallet: Optional[str] = None
-    intent_payload_json: Optional[str] = None
-    created_at: datetime = Field(default_factory=utcnow)
+def save(obj):
+    with Session(engine, expire_on_commit=False) as s:
+        s.add(obj)
+        s.commit()
+    return obj
 
 
-def init_db(url: str | None = None):
-    global engine
-    if url:
-        engine = create_engine(url, echo=False)
-    SQLModel.metadata.create_all(engine)
-    # Idempotent column adds for older DBs — CREATE TABLE IF NOT EXISTS doesn't mutate
-    # existing tables, so ALTER each missing column individually.
-    import sqlite3
-    db_path = url.replace("sqlite:///", "") if url else "bot.db"
-    try:
-        with sqlite3.connect(db_path) as c:
-            cols = [r[1] for r in c.execute("PRAGMA table_info(delegatelink)").fetchall()]
-            additions = {
-                "pending_digest": "ALTER TABLE delegatelink ADD COLUMN pending_digest TEXT DEFAULT ''",
-                "encrypted_key_material": "ALTER TABLE delegatelink ADD COLUMN encrypted_key_material TEXT DEFAULT ''",
-            }
-            for col, sql in additions.items():
-                if col not in cols:
-                    c.execute(sql)
-            c.commit()
-    except sqlite3.OperationalError:
-        pass  # table doesn't exist yet
+def journal(uid: int, kind: str, notional: float = 0, pnl: float = 0, **data) -> None:
+    save(Journal(user_id=uid, kind=kind, notional=notional, pnl=pnl, data=json.dumps(data)))
 
 
-def get_session() -> Session:
-    return Session(engine)
+def day_totals(uid: int) -> tuple[float, float]:
+    """(notional opened, realized pnl) over the last 24h."""
+    with Session(engine) as s:
+        rows = s.exec(select(Journal).where(Journal.user_id == uid, Journal.ts > time.time() - 86400)).all()
+    return sum(r.notional for r in rows), sum(r.pnl for r in rows)
+
+
+def _key(purpose: bytes) -> bytes:
+    return hmac.new(MASTER, purpose, hashlib.sha256).digest()
+
+
+def encrypt(secret: str) -> str:
+    c = AES.new(_key(b"aes"), AES.MODE_GCM)
+    ct, tag = c.encrypt_and_digest(secret.encode())
+    return (c.nonce + tag + ct).hex()
+
+
+def decrypt(blob: str) -> str:
+    b = bytes.fromhex(blob)
+    return AES.new(_key(b"aes"), AES.MODE_GCM, nonce=b[:16]).decrypt_and_verify(b[32:], b[16:32]).decode()
+
+
+def sign_token(subject: str, ttl: int) -> str:
+    body = f"{subject}.{int(time.time()) + ttl}"
+    return f"{body}.{hmac.new(_key(b'token'), body.encode(), hashlib.sha256).hexdigest()[:32]}"
+
+
+def read_token(token: str, prefix: str) -> Optional[str]:
+    """Return the subject after `prefix` if the token is authentic and unexpired."""
+    parts = (token or "").rsplit(".", 2)
+    if len(parts) != 3 or not parts[1].isdigit() or int(parts[1]) < time.time():
+        return None
+    good = hmac.new(_key(b"token"), f"{parts[0]}.{parts[1]}".encode(), hashlib.sha256).hexdigest()[:32]
+    ok = hmac.compare_digest(parts[2], good) and parts[0].startswith(prefix)
+    return parts[0][len(prefix):] if ok else None
+
+
+SQLModel.metadata.create_all(engine)

@@ -1,0 +1,19 @@
+api.agenthub.gg {
+	encode zstd gzip
+	header {
+		Access-Control-Allow-Origin "https://agenthub.gg"
+		Access-Control-Allow-Methods "GET, POST, OPTIONS"
+		Access-Control-Allow-Headers "Content-Type, Authorization"
+		Access-Control-Max-Age "86400"
+		Vary Origin
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		-Server
+	}
+	route {
+		@options method OPTIONS
+		respond @options 204
+		reverse_proxy /api/* 127.0.0.1:8791
+		respond 404
+	}
+}

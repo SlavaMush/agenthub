@@ -1,0 +1,26 @@
+[Unit]
+Description=AgentHub (Telegram bot + web API)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=agenthub
+WorkingDirectory=/home/agenthub/app
+EnvironmentFile=/home/agenthub/app/.env
+ExecStart=/home/agenthub/app/venv/bin/python -m bot.main
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/agenthub/app
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+
+[Install]
+WantedBy=multi-user.target

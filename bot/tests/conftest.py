@@ -1,10 +1,6 @@
-"""Test fixtures — every test runs against an isolated in-memory SQLITE DB."""
-import pytest
+"""Tests run against a throwaway SQLite file and a dummy master key."""
+import os
+import tempfile
 
-
-@pytest.fixture(autouse=True)
-def fresh_db(monkeypatch, tmp_path):
-    from bot import db as dbmod
-    url = f"sqlite:///{tmp_path}/t.db"
-    dbmod.init_db(url)
-    yield
+os.environ["VERANTA_CONNECT_MASTER_KEY"] = "test-master-key"
+os.environ["DATABASE_URL"] = f"sqlite:///{tempfile.mkdtemp()}/t.db"

@@ -1,85 +1,60 @@
-"""Parser tests: normalization, opens, closes, tp/sl clauses."""
+import asyncio
+import time
+
 import pytest
+from eth_account import Account
+from eth_account.messages import encode_defunct
 
-from bot.intent import TradeIntent
-from bot.parser import UnknownPairError, UnknownParseError, normalize_pair, parse_intent
-
-
-class TestNormalizePair:
-    @pytest.mark.parametrize(
-        "raw,expected",
-        [
-            ("eth", "ETH/USD"),
-            ("ETH", "ETH/USD"),
-            ("ETHUSD", "ETH/USD"),
-            ("eth/usd", "ETH/USD"),
-            ("$ETH", "ETH/USD"),
-            ("eth-usd", "ETH/USD"),
-            ("BTC_UPSIDE", "BTC/UPSIDE"),
-        ],
-    )
-    def test_forms(self, raw, expected):
-        assert normalize_pair(raw) == expected
-
-    def test_rejects_garbage(self):
-        with pytest.raises(UnknownPairError):
-            normalize_pair("///")
+from bot import db
+from bot.api import recover
+from bot.core import chat, parse
 
 
-class TestOpenParsing:
-    @pytest.mark.parametrize(
-        "text,pair,side,collateral,leverage",
-        [
-            ("long $100 ETH 5x", "ETH/USD", "long", 100.0, 5.0),
-            ("long 100 usdc eth at 5x", "ETH/USD", "long", 100.0, 5.0),
-            ("long 100 usdc of eth at 5x", "ETH/USD", "long", 100.0, 5.0),
-            ("short $250 BTC 10x", "BTC/USD", "short", 250.0, 10.0),
-            ("open 5x long eth with $100", "ETH/USD", "long", 100.0, 5.0),
-            ("Long 500 dollars of ETH at 5x", "ETH/USD", "long", 500.0, 5.0),
-        ],
-    )
-    def test_open_forms(self, text, pair, side, collateral, leverage):
-        intent = parse_intent(text)
-        assert intent.action == "open"
-        assert intent.pair == pair
-        assert intent.side == side
-        assert intent.collateral == collateral
-        assert intent.leverage == leverage
-
-    def test_stop_loss_percent(self):
-        intent = parse_intent("long $100 ETH 5x with a 10% stop")
-        assert intent.stop_loss_pct == 10.0
-        assert intent.stop_loss_price is None
-
-    def test_stop_loss_price(self):
-        intent = parse_intent("long $100 ETH 5x stop at 3200")
-        assert intent.stop_loss_price == 3200.0
-        assert intent.stop_loss_pct is None
-
-    def test_take_profit_percent(self):
-        intent = parse_intent("short $50 SOL 3x tp 25%")
-        assert intent.take_profit_pct == 25.0
-
-    def test_take_profit_price(self):
-        intent = parse_intent("long $100 ETH 5x take profit 4200")
-        assert intent.take_profit_price == 4200.0
-
-    def test_rejects_garbage(self):
-        with pytest.raises(UnknownParseError):
-            parse_intent("what is the weather today")
+@pytest.mark.parametrize("text,pair,side,collateral,leverage", [
+    ("long $100 ETH 5x", "ETH/USD", "long", 100, 5),
+    ("short 50 btc 3x", "BTC/USD", "short", 50, 3),
+    ("long 100 usdc of eth at 5x", "ETH/USD", "long", 100, 5),
+    ("LONG $20 ethusd", "ETH/USD", "long", 20, 1),
+    ("open 5x long sol with $40", "SOL/USD", "long", 40, 5),
+])
+def test_open(text, pair, side, collateral, leverage):
+    it = parse(text)
+    assert (it.action, it.pair, it.side, it.collateral, it.leverage) == ("open", pair, side, collateral, leverage)
 
 
-class TestCloseParsing:
-    def test_close_pair(self):
-        intent = parse_intent("close my ETH")
-        assert intent.action == "close"
-        assert intent.pair == "ETH/USD"
-        assert not intent.close_all
+def test_tp_sl():
+    assert parse("long $100 ETH 5x with a 10% stop").sl_pct == 10
+    assert parse("long $100 ETH 5x stop at 3200").sl == 3200
+    assert parse("short $50 SOL 3x tp 25%").tp_pct == 25
+    assert parse("long $100 ETH 5x take profit 4200").tp == 4200
 
-    def test_close_everything(self):
-        intent = parse_intent("close everything")
-        assert intent.action == "close"
-        assert intent.close_all
 
-    def test_close_all_variant(self):
-        assert parse_intent("close all").close_all
+def test_close_and_unknown():
+    assert (parse("close my ETH").action, parse("close my ETH").pair) == ("close", "ETH/USD")
+    assert parse("close everything").pair == parse("close all").pair == "*"
+    assert parse("what is the weather today") is None
+
+
+def test_tokens_and_crypto():
+    tok = db.sign_token("s-0xabc", 60)
+    assert db.read_token(tok, "s-") == "0xabc"
+    assert db.read_token(tok, "tg-") is None
+    assert db.read_token(tok[:-1] + ("0" if tok[-1] != "0" else "1"), "s-") is None
+    assert db.read_token(db.sign_token("s-x", -1), "s-") is None
+    assert db.decrypt(db.encrypt("secret")) == "secret"
+
+
+def test_login_signature_must_match_wallet():
+    acct = Account.create()
+    text = f"Sign in to AgentHub\nWallet: {acct.address}\nIssued: {int(time.time())}"
+    sig = acct.sign_message(encode_defunct(text=text)).signature.hex()
+    assert recover(sig, text=text) == acct.address.lower()
+    assert recover(sig, text=text + "x") != acct.address.lower()
+    assert recover("0x" + "00" * 200, text=text) == ""  # smart-wallet style blobs are rejected
+
+
+def test_pause_and_inactive_gate():
+    u = db.save(db.User(wallet="0x" + "1" * 40))
+    assert "Paused" in asyncio.run(chat(u, "pause"))[0] and db.get_user(id=u.id).paused
+    reply, token = asyncio.run(chat(u, "long $100 ETH 5x"))
+    assert token is None and "Finish setup" in reply

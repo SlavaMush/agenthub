@@ -1,207 +1,168 @@
-"""Shared core used by both the Telegram bot and the HTTP agent service.
-
-Both transports want the same behavior:
-  parse text → build quote (if not close) → policy check → stow pending.
-On confirm: pop pending → execute with the user's wallet and journal the result.
-
-This module owns all of that once. Telegram and aiohttp endpoints stay thin.
-"""
-import json
+"""Chat -> intent -> quote + policy -> confirm -> execute. Shared by the web API and Telegram."""
 import logging
+import re
+import secrets
+import time
 from dataclasses import dataclass
 from typing import Optional
 
-from sqlmodel import select
+from veranta_sdk import AsyncVeranta, compute
 
-from . import confirm
-from .config import CONFIRM_TTL_SECONDS
-from .db import Journal, Policy, User, get_session
-from .executor import Executor
-from .markets import MarketData
-from .parser import UnknownParseError, parse_intent
-from .policy import check_daily_notional, check_policy
-from .quote import build_quote, format_quote
+from .db import BUILDER, NETWORK, WEB_URL, User, day_totals, decrypt, journal, save
 
-log = logging.getLogger("veranta-bot.core")
+log = logging.getLogger("agenthub.core")
+HELP = ("Try: `long $20 ETH 5x`, `short $50 BTC 3x sl 5% tp 10%`, `close my ETH`, "
+        "`close everything`, `pause`, `resume`.")
+N = r"\$?(\d+(?:\.\d+)?)"
+TICK = r"\$?([a-z][a-z0-9]{0,14}(?:/usdc?)?)"
 
 
 @dataclass
-class ChatResult:
-    """Uniform outcome of parsing/handling a chat message."""
-    reply: str
-    token: Optional[str] = None
-    needs_connect: bool = False
-    policy_denied: bool = False
-    ttl_seconds: int = CONFIRM_TTL_SECONDS
+class Intent:
+    action: str  # open | close
+    pair: str = "*"
+    side: str = "long"
+    collateral: float = 0
+    leverage: float = 1
+    tp: Optional[float] = None
+    sl: Optional[float] = None
+    tp_pct: Optional[float] = None
+    sl_pct: Optional[float] = None
 
 
-def _journal(user_id: int, kind: str, payload: dict) -> None:
+def pair_of(t: str) -> str:
+    t = t.upper().split("/")[0]
+    return f"{t[:-3] if t.endswith('USD') and len(t) > 3 else t}/USD"
+
+
+def parse(text: str) -> Optional[Intent]:
+    t = text.lower()
+    if re.search(r"\bclose\s+(everything|all)\b", t):
+        return Intent("close")
+    if m := re.search(rf"\bclose\s+(?:my\s+)?{TICK}\b", t):
+        return Intent("close", pair_of(m[1]))
+    if m := re.search(rf"\b(long|short)\s+(?:of\s+)?{N}\s*(?:usdc?\s+)?(?:of\s+|on\s+|in\s+)?{TICK}(?:\s+(?:at\s+|@\s*|with\s+)?(\d+(?:\.\d+)?)\s*x\b)?", t):
+        it = Intent("open", pair_of(m[3]), m[1], float(m[2]), float(m[4] or 1))
+    elif m := re.search(rf"\bopen\s+(\d+(?:\.\d+)?)\s*x\s+(long|short)\s+{TICK}\s+(?:with|for)\s+{N}", t):
+        it = Intent("open", pair_of(m[3]), m[2], float(m[4]), float(m[1]))
+    else:
+        return None
+    for kind, pat in (("sl", r"(?:stop(?:\s*loss)?|sl)"), ("tp", r"(?:take\s*profit|tp|target)")):
+        m = re.search(rf"\b{pat}\s*(?:at|=|:)?\s*{N}\s*(%|percent)?", t) or re.search(rf"{N}\s*(%|percent)\s*{pat}\b", t)
+        if m:
+            setattr(it, f"{kind}_pct" if m[2] else kind, float(m[1]))
+    return it
+
+
+def client(u: Optional[User] = None, signing: bool = False) -> AsyncVeranta:
+    if not signing:
+        return AsyncVeranta(network=NETWORK, trader_address=u.wallet if u else None)
+    return AsyncVeranta(network=NETWORK, trader_address=u.wallet, private_key=decrypt(u.delegate_key), **BUILDER)
+
+
+async def upnl(c, positions) -> list[float]:
+    out = []
+    for p in positions:
+        mark, entry = float(await c.markets.price(p.pair_index)), float(p.open_price)
+        out.append((mark - entry) / entry * float(p.position_size) * (1 if p.buy else -1))
+    return out
+
+
+async def quote(u: User, it: Intent) -> tuple[str, bool]:
+    """Human-readable quote and whether it passes the market rules and the user's policy."""
+    async with client(u) as c:
+        pair = await c.markets.pair(it.pair)
+        price = float(await c.markets.price(it.pair))
+        positions = (await c.account.positions(trader=u.wallet)).positions
+        open_pnl = sum(await upnl(c, positions))
+    long, size = it.side == "long", it.collateral * it.leverage
+    tp = it.tp or (it.tp_pct and price * (1 + (it.tp_pct if long else -it.tp_pct) / 100))
+    sl = it.sl or (it.sl_pct and price * (1 - (it.sl_pct if long else -it.sl_pct) / 100))
+    it.tp, it.sl, it.tp_pct, it.sl_pct = tp or None, sl or None, None, None
+    used, pnl = day_totals(u.id)
+    lev = pair.leverages
+    checks = [
+        (lev.min_leverage <= it.leverage <= lev.max_leverage, f"{it.pair} allows {lev.min_leverage:g}-{lev.max_leverage:g}x"),
+        (size >= pair.min_lev_pos_usdc, f"size ${size:g} is under the ${pair.min_lev_pos_usdc:g} market minimum (collateral × leverage)"),
+        (not tp or (tp > price) == long, "take-profit is on the wrong side of entry"),
+        (not sl or (sl < price) == long, "stop-loss is on the wrong side of entry"),
+        (not u.paused, "trading is paused (send `resume`)"),
+        (it.leverage <= u.max_leverage, f"over your {u.max_leverage:g}x leverage cap"),
+        (it.collateral <= u.max_collateral, f"over your ${u.max_collateral:g} per-trade collateral cap"),
+        (used + size <= u.max_daily_notional, f"over your ${u.max_daily_notional:g}/day size cap (${used:.0f} used)"),
+        (len(positions) < u.max_positions, f"already at your {u.max_positions}-position cap"),
+        (pnl + open_pnl > -u.max_daily_loss, f"daily loss limit ${u.max_daily_loss:g} reached"),
+    ]
+    liq = compute.estimate_liquidation_price(open_price=price, collateral=it.collateral, leverage=it.leverage, is_long=long)
+    lines = [f"{it.side.upper()} {it.pair} {it.leverage:g}x — ${it.collateral:g} collateral, ${size:g} size",
+             f"Entry ~{price:,.2f} · fee ~${size * pair.open_fee_p / 100:.2f} · liq ~{float(liq):,.2f}"]
+    lines += [f"TP {tp:,.2f}"] if tp else []
+    lines += [f"SL {sl:,.2f}"] if sl else []
+    problems = [msg for ok, msg in checks if not ok]
+    return "\n".join(lines + ([f"Blocked: {'; '.join(problems)}"] if problems else [])), not problems
+
+
+_pending: dict[str, tuple[float, int, Intent]] = {}
+
+
+async def chat(u: User, text: str) -> tuple[str, Optional[str]]:
+    """Reply text plus a confirm token when there is something to execute."""
+    cmd = text.strip().lower()
+    if cmd in ("pause", "resume"):
+        u.paused = cmd == "pause"
+        save(u)
+        return ("Paused. Closes still work." if u.paused else "Trading resumed."), None
+    if not u.active:
+        return f"Finish setup first: sign the delegation at {WEB_URL}", None
+    it = parse(text)
+    if not it:
+        return f"Didn't catch that. {HELP}", None
+    if it.action == "close":
+        reply = f"Close {'ALL positions' if it.pair == '*' else 'your ' + it.pair + ' positions'}?"
+    else:
+        try:
+            reply, ok = await quote(u, it)
+        except Exception as e:
+            return f"Couldn't price {it.pair}: {str(e)[:150]}", None
+        if not ok:
+            return reply, None
+    now = time.time()
+    for k in [k for k, v in _pending.items() if v[0] < now]:
+        del _pending[k]
+    token = secrets.token_urlsafe(9)
+    _pending[token] = (now + 300, u.id, it)
+    return reply, token
+
+
+async def confirm(u: User, token: str) -> str:
+    exp, owner, it = _pending.pop(token, (0, None, None))
+    if owner != u.id or exp < time.time():
+        return "Quote expired — send it again."
     try:
-        with get_session() as s:
-            s.add(Journal(user_id=user_id, kind=kind, payload=json.dumps(payload)))
-            s.commit()
-    except Exception:
-        log.exception("journal write failed")
-
-
-def _get_user_policy(where_clause, *args, **kwargs):
-    """Yield (user, policy) detached from session, or (None, None)."""
-    with get_session() as s:
-        u = s.exec(select(User).where(where_clause)).first()
-        if u is None:
-            return None, None
-        s.expunge(u)
-        p = s.exec(select(Policy).where(Policy.user_id == u.id)).first()
-        if p is not None:
-            s.expunge(p)
-        return u, p
-
-
-def get_user_by_telegram(tg_id: str):
-    return _get_user_policy(User.telegram_id == tg_id)
-
-
-def get_user_by_wallet(wallet: str):
-    if not wallet:
-        return None, None
-    w = wallet.lower()
-    with get_session() as s:
-        for u in s.exec(select(User)).all():
-            if (u.wallet_address or "").lower() == w:
-                s.expunge(u)
-                p = s.exec(select(Policy).where(Policy.user_id == u.id)).first()
-                if p is not None:
-                    s.expunge(p)
-                return u, p
-    return None, None
-
-
-async def chat(text: str, user: User, policy: Policy) -> ChatResult:
-    """Run one chat message end-to-end. Returns reply + optional confirm token."""
-    text = (text or "").strip()
-    if not text:
-        return ChatResult(reply="Empty message.")
-
-    if policy.paused:
-        return ChatResult(reply="Trading is paused for your account.")
-
-    try:
-        intent = parse_intent(text)
-    except UnknownParseError:
-        return ChatResult(
-            reply=(
-                "Didn't understand. Try `long $100 ETH 5x with a 10% stop`, "
-                "`close my ETH`, or `close everything`."
-            )
-        )
-
-    if intent.action == "close":
-        token = confirm.put(user.id, intent, None, ttl=CONFIRM_TTL_SECONDS)
-        return ChatResult(reply="About to close your position(s). Confirm?", token=token)
-
-    # Friendly pre-check: if user clearly sized below pair minimum, tell them
-    # up-front instead of after the quote call.
-    # Rough heuristic: notional = collateral * leverage. ETH pair min is 100 USDC.
-    collateral = intent.collateral or 0.0
-    leverage = intent.leverage or 1.0
-    est_notional = collateral * leverage
-    # Fetch real pair data first so we check actual mins, not a hardcoded 100.
-    async with MarketData() as md:
-        pair = await md.pair_info(intent.pair)
-        entry = await md.price(intent.pair)
-
-    min_notional = float(getattr(pair, "min_lev_pos_usdc", 0) or 0)
-    if min_notional and est_notional < min_notional:
-        # Minimum collateral needed at user's chosen leverage.
-        suggestion = max(1, int((min_notional + 0.99) / max(0.001, leverage)))
-        return ChatResult(
-            reply=(
-                f"That size is below the protocol minimum: ${collateral:g} × {leverage:g}x = "
-                f"~${est_notional:g} notional. The {pair.from_symbol}/{pair.to_symbol} market "
-                f"needs at least ${min_notional:g} notional (= collateral × leverage).\n\n"
-                f"Your policy cap is fine — this is the market's own rule. Try:\n"
-                f"  • `long ${suggestion} {intent.pair} {leverage:g}x`\n"
-                f"  • `long ${int(min_notional)} {intent.pair} 1x`"
-            ),
-            policy_denied=True,
-        )
-
-    quote = build_quote(intent, pair, entry)
-
-    verdict = check_policy(intent, quote, policy, open_position_count=0)
-    daily_reason = check_daily_notional(policy, user.id, quote.notional)
-    if daily_reason:
-        verdict.allowed = False
-        verdict.reasons.append(daily_reason)
-
-    _journal(user.id, "quote", {"text": text, "verdict": quote.verdict, "policy_ok": verdict.allowed})
-
-    body = format_quote(quote)
-    if quote.verdict != "ok" or not verdict.allowed:
-        reasons = "; ".join(quote.reasons + verdict.reasons) or "not allowed"
-        _journal(user.id, "policy_denial", {"reasons": reasons})
-        return ChatResult(
-            reply=body + f"\n\nBlocked: {reasons}",
-            policy_denied=True,
-        )
-
-    token = confirm.put(user.id, intent, quote, ttl=CONFIRM_TTL_SECONDS)
-    return ChatResult(reply=body, token=token)
-
-
-@dataclass
-class ConfirmResult:
-    reply: str
-    tx: Optional[str] = None
-    ok: bool = False
-
-
-async def execute_pending(token: str, user: User, executor: Executor) -> ConfirmResult:
-    """Pop the pending quote, run the executor, journal the result."""
-    pending = confirm.pop(token, user.id)
-    if not pending:
-        return ConfirmResult(reply="Quote expired. Ask again.")
-
-    wallet = user.wallet_address
-    try:
-        if pending.intent.action == "close":
-            receipts = await executor.close_all(trader=wallet)
-            _journal(user.id, "execute", {"close": True, "n": len(receipts)})
-            return ConfirmResult(reply=f"Closed {len(receipts)} position(s).", ok=True)
-        receipt = await executor.open_with_quote(pending.intent, pending.quote, trader=wallet)
-        tx = getattr(receipt, "tx_hash", None)
-        _journal(user.id, "execute", {
-            "pair": pending.intent.pair,
-            "side": pending.intent.side,
-            "collateral": pending.intent.collateral,
-            "leverage": pending.intent.leverage,
-            "notional": pending.quote.notional,
-            "tx": tx,
-        })
-        reply = (
-            f"Filled: {pending.intent.side.upper()} {pending.intent.pair} "
-            f"{pending.intent.collateral:g} @ {pending.intent.leverage:g}x"
-        )
-        return ConfirmResult(reply=reply, tx=tx, ok=True)
+        if it.action == "open":
+            reply, ok = await quote(u, it)  # re-check: prices and caps may have moved
+            if not ok:
+                return reply
+        async with client(u, signing=True) as c:
+            if it.action == "open":
+                r = await c.trade.market_open(it.pair, it.side, it.collateral, it.leverage, take_profit=it.tp, stop_loss=it.sl)
+                journal(u.id, "open", notional=it.collateral * it.leverage, pair=it.pair, side=it.side, tx=r.tx_hash)
+                return f"Filled {it.side} {it.pair} ${it.collateral:g} @ {it.leverage:g}x\ntx {r.tx_hash}"
+            idx = None if it.pair == "*" else (await c.markets.pair(it.pair)).index
+            ps = [p for p in (await c.account.positions()).positions if idx is None or p.pair_index == idx]
+            for p, pnl in zip(ps, await upnl(c, ps)):
+                r = await c.trade.market_close(p.pair_index, p.index, float(p.collateral))
+                journal(u.id, "close", pnl=pnl, pair=p.pair_index, tx=r.tx_hash)
+            return f"Closed {len(ps)} position(s)."
     except Exception as e:
-        _journal(user.id, "error", {"err": f"{type(e).__name__}: {e}"})
         log.exception("execute failed")
-        return ConfirmResult(reply=f"Failed: {type(e).__name__}: {str(e)[:200]}")
+        journal(u.id, "error", err=f"{type(e).__name__}: {e}"[:300])
+        return f"Failed: {str(e)[:200]} — check positions before retrying."
 
 
-def pause_user(user: User) -> None:
-    with get_session() as s:
-        p = s.exec(select(Policy).where(Policy.user_id == user.id)).first()
-        if p:
-            p.paused = True
-            s.add(p)
-            s.commit()
-
-
-def resume_user(user: User) -> None:
-    with get_session() as s:
-        p = s.exec(select(Policy).where(Policy.user_id == user.id)).first()
-        if p:
-            p.paused = False
-            s.add(p)
-            s.commit()
+async def positions(u: User) -> list[dict]:
+    async with client(u) as c:
+        ps = (await c.account.positions(trader=u.wallet)).positions
+        return [{"pair": p.base_symbol or f"#{p.pair_index}", "side": p.side, "collateral": float(p.collateral),
+                 "leverage": float(p.leverage), "entry": float(p.open_price), "liq": float(p.liquidation_price),
+                 "pnl": round(x, 2)} for p, x in zip(ps, await upnl(c, ps))]
