@@ -35,6 +35,20 @@ def test_close_and_unknown():
     assert parse("what is the weather today") is None
 
 
+def test_new_actions():
+    it = parse("short $50 BTC 3x limit 90000")
+    assert (it.action, it.price, it.leverage) == ("open", 90000, 3)
+    assert parse("long $20 eth @ 5x").price is None  # "@ 5x" is leverage, not a limit price
+    assert (parse("close 25% of my ETH").pct, parse("close half my eth").pct) == (25, 50)
+    tp = parse("set sl ETH 2400")
+    assert (tp.action, tp.pair, tp.sl, tp.tp) == ("tpsl", "ETH/USD", 2400, None)
+    assert parse("move tp on my btc to 99000").tp == 99000
+    m = parse("add $10 margin to ETH")
+    assert (m.action, m.side, m.collateral) == ("margin", "add", 10)
+    assert parse("remove 5 usdc collateral from eth").side == "remove"
+    assert (parse("cancel orders").pair, parse("cancel my eth orders").pair, parse("cancel limit orders").pair) == ("*", "ETH/USD", "*")
+
+
 def test_tokens_and_crypto():
     tok = db.sign_token("s-0xabc", 60)
     assert db.read_token(tok, "s-") == "0xabc"

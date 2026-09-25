@@ -1,4 +1,4 @@
-"""Web API (localhost, behind Caddy): wallet sign-in, delegate onboarding, policy, chat."""
+"""Web API (localhost, behind Caddy): wallet sign-in, gasless signed intents, policy, chat, owner fee setup."""
 import logging
 import time
 
@@ -11,12 +11,18 @@ from veranta_sdk import AsyncVeranta
 from veranta_sdk.types import CallData
 
 from . import core
-from .db import BUILDER, NETWORK, POLICY, User, decrypt, encrypt, get_user, journal, read_token, save, sign_token
+from .db import BUILDER, NETWORK, POLICY, REFERRAL_CODE, TREASURY, User, encrypt, get_user, journal, read_token, save, sign_token
 
 log = logging.getLogger("agenthub.api")
 DELEGATE_TTL = 30 * 86400
-SET_DELEGATE = keccak(text="setDelegateWithSig(bytes,bytes)")[:4]
-EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase Wallet EOA); smart wallets can't sign delegations."
+EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase Wallet EOA); smart wallets can't sign these."
+# kind -> (tx-builder intent path, on-chain WithSig entry point, who may request it)
+INTENTS = {
+    "delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)", "any"),
+    "referral": ("/v2/intents/referral-set-code", "setTraderReferralCodeByUserWithSig(bytes,bytes)", "any"),
+    "referrer": ("/v2/intents/referral-register-code", "registerCodeWithSig(bytes,bytes)", "owner"),
+}
+_signing: dict[tuple[str, str], tuple] = {}  # (wallet, kind) -> (expires, intent payload, relay key)
 routes = web.RouteTableDef()
 
 
@@ -69,15 +75,20 @@ async def login(req):
 async def me(req):
     u: User = req["user"]
     out = {"wallet": u.wallet, "active": u.active, "expires": u.delegate_expiry, "paused": u.paused,
-           "telegram": bool(u.telegram_id), "policy": {k: getattr(u, k) for k in POLICY}}
+           "telegram": bool(u.telegram_id), "referred": u.referred, "referralCode": REFERRAL_CODE,
+           "policy": {k: getattr(u, k) for k in POLICY}}
     try:
         async with core.client(u) as c:
             a = await c.account._engine.addresses()
-            spenders = [a["tradingStorage"]] + ([a["builderCode"]] if BUILDER else [])
+            spenders = [a["tradingStorage"]] + ([a["builderCode"]] if await core.fees() else [])
             allow = [await c.account.allowance(s) for s in spenders]
+            if u.wallet == TREASURY:
+                out["owner"] = {"feePercent": BUILDER.get("builder_fee_percent", 0),
+                                "builder": await c.account.builder_code(BUILDER["builder_code"]) if BUILDER else None,
+                                "referral": await c.info.referral_stats(u.wallet)}
         out |= {"usdc": a["usdc"], "balance": float(allow[0].get("balanceUsdc") or 0),
                 "approvals": [{"spender": s, "allowance": float(x.get("allowanceUsdc") or 0)} for s, x in zip(spenders, allow)],
-                "positions": await core.positions(u)}
+                **await core.portfolio(u)}
     except Exception as e:
         log.warning("chain read failed for %s: %s", u.wallet, e)
     return web.json_response(out)
@@ -97,37 +108,61 @@ async def policy(req):
     return web.json_response({"ok": True})
 
 
-@routes.post("/api/delegate/prepare")
-async def prepare(req):
-    u, acct = req["user"], Account.create()
-    async with AsyncVeranta(network=NETWORK, private_key=acct.key.hex()) as c:
-        p = await c.account._txb.intent("/v2/intents/delegate-set", trader=u.wallet, delegate=acct.address,
-                                         expirySeconds=int(time.time()) + DELEGATE_TTL)
-    u.pending_key, u.pending_digest, u.pending_intent = encrypt(acct.key.hex()), p.digest, p.encoded_intent
-    save(u)  # the active delegate (if any) keeps working until the new one lands
+@routes.post("/api/sign/{kind}/prepare")
+async def sign_prepare(req):
+    u, kind = req["user"], req.match_info["kind"]
+    if kind not in INTENTS or (INTENTS[kind][2] == "owner" and u.wallet != TREASURY):
+        return err("not allowed", 403)
+    key = Account.create()  # fresh key: becomes the delegate, or just relays the gasless call
+    params = {"delegate": {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL},
+              "referral": {"referee": u.wallet, "code": REFERRAL_CODE},
+              "referrer": {"referrer": u.wallet, "code": REFERRAL_CODE}}[kind]
+    async with AsyncVeranta(network=NETWORK, private_key=key.key.hex()) as c:
+        p = await c.account._txb.intent(INTENTS[kind][0], **params)
+    _signing[(u.wallet, kind)] = (time.time() + 900, p, key.key.hex())
     return web.json_response({"domain": p.domain, "types": p.types, "primaryType": p.primary_type, "message": p.message})
 
 
-@routes.post("/api/delegate/submit")
-async def submit(req):
-    u, sig = req["user"], (await req.json()).get("signature", "")
-    if not u.pending_key:
-        return err("no pending delegation, start again")
-    if recover(sig, digest=u.pending_digest) != u.wallet:
+@routes.post("/api/sign/{kind}/submit")
+async def sign_submit(req):
+    u, kind = req["user"], req.match_info["kind"]
+    exp, p, key = _signing.pop((u.wallet, kind), (0, None, None))
+    sig = (await req.json()).get("signature", "")
+    if exp < time.time():
+        return err("request expired, start again")
+    if recover(sig, digest=p.digest) != u.wallet:
         return err(EOA_ONLY, 403)
-    data = SET_DELEGATE + abi_encode(["bytes", "bytes"], [to_bytes(hexstr=sig), to_bytes(hexstr=u.pending_intent)])
-    # The new delegate relays its own registration through its EIP-7702 account (gasless).
-    async with AsyncVeranta(network=NETWORK, private_key=decrypt(u.pending_key)) as c:
+    data = keccak(text=INTENTS[kind][1])[:4] + abi_encode(["bytes", "bytes"], [to_bytes(hexstr=sig), to_bytes(hexstr=p.encoded_intent)])
+    async with AsyncVeranta(network=NETWORK, private_key=key) as c:  # relayed via the key's EIP-7702 account: gasless
         a = c.account
         r = await a._route(CallData.model_validate({
-            "to": (await a._get_meta())["addresses"]["tradingRouter"], "from": a._engine.signer.address,
-            "data": "0x" + data.hex(), "value": "0x0", "chainId": await a._engine.chain_id(),
-            "description": "setDelegateWithSig"}), wait=True)
-    u.delegate_key, u.delegate_expiry = u.pending_key, int(time.time()) + DELEGATE_TTL - 3600
-    u.pending_key = u.pending_digest = u.pending_intent = ""
+            "to": p.domain["verifyingContract"], "from": a._engine.signer.address, "data": "0x" + data.hex(),
+            "value": "0x0", "chainId": await a._engine.chain_id(), "description": kind}), wait=True)
+    if kind == "delegate":
+        u.delegate_key, u.delegate_expiry = encrypt(key), int(time.time()) + DELEGATE_TTL - 3600
+    u.referred = u.referred or kind == "referral"
     save(u)
-    journal(u.id, "delegate", tx=r.tx_hash)
+    journal(u.id, kind, tx=r.tx_hash)
     return web.json_response({"ok": True, "tx": r.tx_hash})
+
+
+@routes.post("/api/owner/{action}")
+async def owner_tx(req):
+    """Unsigned tx for the treasury wallet to send itself (msg.sender-scoped actions)."""
+    u, action = req["user"], req.match_info["action"]
+    if u.wallet != TREASURY or action not in ("builder", "claim") or (action == "builder" and not BUILDER):
+        return err("not allowed", 403)
+    async with core.client() as c:
+        if action == "claim":
+            cd = await c.account._txb.calldata("/v2/referral/claim-rebate", caller=u.wallet)
+        else:
+            registered = (await c.account.builder_code(BUILDER["builder_code"]))["registered"]
+            fee = BUILDER["builder_fee_percent"]
+            cd = await c.account._txb.calldata(f"/v2/misc/builder-code/{'modify' if registered else 'register'}",
+                                                caller=u.wallet, code=BUILDER["builder_code"], feeCollector=u.wallet,
+                                                maxOpenFeePercent=fee, maxCloseFeePercent=fee, maxPnlCloseFeePercent=fee)
+    core._fees["checked"] = 0  # re-check registration on the next trade
+    return web.json_response({"to": cd.to, "data": cd.data, "value": cd.value})
 
 
 @routes.post("/api/chat")

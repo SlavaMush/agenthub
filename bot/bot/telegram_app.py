@@ -30,10 +30,12 @@ async def on_text(upd: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
               f"{u.max_positions} positions · ${u.max_daily_loss:g} daily loss"
         return await msg.reply_text(f"{lim}\n{'Paused' if u.paused else 'Active'}. Edit at {WEB_URL}")
     if cmd == "positions":
-        ps = await core.positions(u)
+        pf = await core.portfolio(u)
         lines = [f"{p['side']} {p['pair']} ${p['collateral']:g} {p['leverage']:g}x @ {p['entry']:,.2f} "
-                 f"(liq {p['liq']:,.2f}, pnl {p['pnl']:+.2f})" for p in ps]
-        return await msg.reply_text("\n".join(lines) or "No open positions.")
+                 f"(liq {p['liq']:,.2f}, pnl {p['pnl']:+.2f})" for p in pf["positions"]]
+        lines += [f"order: {o['side']} {o['pair']} ${o['collateral']:g} {o['leverage']:g}x limit {o['price']:,.2f}"
+                  for o in pf["orders"]]
+        return await msg.reply_text("\n".join(lines) or "No open positions or orders.")
     reply, token = await core.chat(u, text)
     kb = Inline([[Btn("Execute", callback_data=f"c:{token}"), Btn("Cancel", callback_data="x")]]) if token else None
     await msg.reply_text(reply, reply_markup=kb or MENU)

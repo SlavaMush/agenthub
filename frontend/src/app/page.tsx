@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { useAccount, useConfig, useSignMessage, useSignTypedData, useSwitchChain, useWriteContract } from "wagmi";
+import {
+  useAccount, useConfig, useSendTransaction, useSignMessage, useSignTypedData, useSwitchChain, useWriteContract,
+} from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { erc20Abi, parseUnits } from "viem";
 import { base } from "@reown/appkit/networks";
@@ -19,9 +21,16 @@ const LIMITS = [
 type Hex = `0x${string}`;
 type Policy = Record<(typeof LIMITS)[number][0], number>;
 type Position = { pair: string; side: string; collateral: number; leverage: number; entry: number; liq: number; pnl: number };
+type Order = { pair: string; side: string; collateral: number; leverage: number; price: number };
+type Owner = {
+  feePercent: number;
+  builder: { registered: boolean; feeCollector: string | null; maxOpenFeePercent: number; maxCloseFeePercent: number } | null;
+  referral: { data?: { asReferrer?: { totalFees: number; totalRebates: number; totalTraders: number } } };
+};
 type Me = {
-  wallet: string; active: boolean; expires: number; paused: boolean; telegram: boolean; policy: Policy;
-  usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[]; positions?: Position[];
+  wallet: string; active: boolean; expires: number; paused: boolean; telegram: boolean; referred: boolean;
+  referralCode: string; policy: Policy; usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[];
+  positions?: Position[]; orders?: Order[]; owner?: Owner;
 };
 type Run = (label: string, fn: (step: (label: string) => void) => Promise<void>) => Promise<void>;
 
@@ -99,6 +108,7 @@ export default function Home() {
       ) : !me ? <p className="mt-10 text-center text-sm text-dim">Loading your account…</p>
         : me.active ? <Dashboard me={me} token={token} run={run} busy={busy} refresh={refresh} />
         : <Setup me={me} token={token} run={run} busy={busy} refresh={refresh} />}
+      {me?.owner && token && <OwnerPanel me={me} owner={me.owner} token={token} run={run} busy={busy} refresh={refresh} />}
 
       {err && <p className="mt-4 whitespace-pre-line break-words rounded-xl bg-loss/10 p-3 text-sm text-loss">{err}</p>}
       <footer className="mt-auto pt-10 text-center text-xs text-mute">
@@ -133,15 +143,25 @@ function Hero() {
 
 type Props = { me: Me; token: string; run: Run; busy: string; refresh: () => Promise<void> };
 
-function useDelegate({ token, run, refresh }: Props) {
+// Gasless on-chain actions: the wallet signs an EIP-712 intent and the server relays it.
+function useSignIntent(token: string) {
   const { signTypedDataAsync } = useSignTypedData();
-  return (policy?: Policy) => run("Preparing…", async (step) => {
-    if (policy) await api("/api/policy", token, policy);
-    const typed = await api("/api/delegate/prepare", token, {});
-    step("Sign the delegation in your wallet…");
+  return async (kind: "delegate" | "referral" | "referrer", step: (s: string) => void, what: string) => {
+    step("Preparing…");
+    const typed = await api(`/api/sign/${kind}/prepare`, token, {});
+    step(`Sign ${what} in your wallet…`);
     const signature = await signTypedDataAsync(typed);
-    step("Registering on-chain…");
-    await api("/api/delegate/submit", token, { signature });
+    step("Submitting on-chain (gasless)…");
+    await api(`/api/sign/${kind}/submit`, token, { signature });
+  };
+}
+
+function useDelegate({ token, run, refresh }: Props) {
+  const sign = useSignIntent(token);
+  return (policy?: Policy, referred = true) => run("Preparing…", async (step) => {
+    if (policy) await api("/api/policy", token, policy);
+    await sign("delegate", step, "the trading delegation");
+    if (!referred) await sign("referral", step, "the fee-discount referral link").catch(() => {}); // optional
     await refresh();
   });
 }
@@ -168,11 +188,14 @@ function Setup(props: Props) {
     <section className={`${card} mt-6 space-y-4`}>
       <h2 className="text-xl font-semibold">Enable the agent</h2>
       <p className="text-sm text-dim">
-        Set your limits, then sign one delegation. It lets the agent trade for 30 days and can never move funds.
+        Set your limits, then sign the delegation. It lets the agent trade for 30 days and can never move funds.
+        A second signature links our referral code for a Veranta fee discount. Both are free, no gas.
         Markets need at least $100 size (collateral × leverage).
       </p>
       <Limits value={policy} onChange={setPolicy} />
-      <button className={btn} disabled={!!props.busy} onClick={() => delegate(policy)}>{props.busy || "Sign delegation"}</button>
+      <button className={btn} disabled={!!props.busy} onClick={() => delegate(policy, props.me.referred)}>
+        {props.busy || "Sign and enable"}
+      </button>
     </section>
   );
 }
@@ -181,6 +204,7 @@ function Dashboard(props: Props) {
   const { me, token, run, busy, refresh } = props;
   const [policy, setPolicy] = useState(me.policy);
   const delegate = useDelegate(props);
+  const sign = useSignIntent(token);
   const daysLeft = Math.max(0, Math.floor((me.expires - Date.now() / 1000) / 86400));
   return (
     <div className="mt-4 space-y-4">
@@ -198,6 +222,12 @@ function Dashboard(props: Props) {
           </button>
           <button className={ghost} disabled={!!busy} onClick={refresh}>Refresh</button>
           {daysLeft < 7 && <button className={ghost} disabled={!!busy} onClick={() => delegate()}>Renew key</button>}
+          {!me.referred && (
+            <button className={ghost} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
+              await sign("referral", step, "the referral link"); await refresh(); })}>
+              Get fee discount
+            </button>
+          )}
           {!me.telegram && <a className={ghost} href={BOT}>Link Telegram</a>}
         </div>
       </section>
@@ -205,6 +235,12 @@ function Dashboard(props: Props) {
       <Chat {...props} />
       <section className={card}>
         <h3 className="mb-3 font-semibold">Positions</h3>
+        {me.orders?.map((o, i) => (
+          <div key={`o${i}`} className="flex flex-wrap justify-between gap-x-4 border-b border-line py-2 text-sm">
+            <span><b className="text-dim">limit</b> {o.side} {o.pair} {o.leverage}x · ${o.collateral}</span>
+            <span className="tabular-nums text-dim">@ {o.price.toLocaleString()}</span>
+          </div>
+        ))}
         {!me.positions?.length ? <p className="text-sm text-dim">No open positions.</p> : me.positions.map((p, i) => (
           <div key={i} className="flex flex-wrap justify-between gap-x-4 border-t border-line py-2 text-sm first:border-0">
             <span><b className={p.side === "long" ? "text-gain" : "text-loss"}>{p.side}</b> {p.pair} {p.leverage}x · ${p.collateral}</span>
@@ -259,6 +295,55 @@ function Approve({ me, run, busy, refresh }: Props) {
   );
 }
 
+function OwnerPanel({ me, owner, token, run, busy, refresh }: Props & { owner: Owner }) {
+  const config = useConfig();
+  const { chainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+  const { sendTransactionAsync } = useSendTransaction();
+  const sign = useSignIntent(token);
+  const b = owner.builder;
+  const stats = owner.referral?.data?.asReferrer;
+  const send = (action: "builder" | "claim") => run("Switching to Base…", async (step) => {
+    if (chainId !== base.id) await switchChainAsync({ chainId: base.id });
+    const tx = await api<{ to: Hex; data: Hex; value: string }>(`/api/owner/${action}`, token, {});
+    step("Confirm in your wallet (small Base gas fee)…");
+    const hash = await sendTransactionAsync({ to: tx.to, data: tx.data, value: BigInt(tx.value || 0), chainId: base.id });
+    step("Waiting for confirmation…");
+    await waitForTransactionReceipt(config, { hash, chainId: base.id });
+    await refresh();
+  });
+  const feeOk = b?.registered && b.feeCollector?.toLowerCase() === me.wallet && b.maxOpenFeePercent >= owner.feePercent;
+  return (
+    <section className={`${card} mt-4 space-y-3 border-mint/40`}>
+      <h3 className="font-semibold">Owner: fees &amp; referrals</h3>
+      <p className="text-sm text-dim">
+        Builder fee <b className="text-white">{owner.feePercent}%</b> of size on every market open, increase and close.{" "}
+        {feeOk ? <span className="text-gain">Live: fees are paid to this wallet.</span>
+          : b?.registered ? <span className="text-loss">Registered, but the collector or caps don&apos;t match. Update to fix.</span>
+          : <span className="text-loss">Not registered yet, so no fees are being charged.</span>}
+      </p>
+      {!feeOk && (
+        <button className={btn} disabled={!!busy} onClick={() => send("builder")}>
+          {busy || (b?.registered ? "Update fee settings" : "Register builder code (this wallet collects fees)")}
+        </button>
+      )}
+      <p className="text-sm text-dim">
+        Referral code <b className="text-white">{me.referralCode}</b>: {stats?.totalTraders ?? 0} traders · $
+        {(stats?.totalFees ?? 0).toFixed(2)} fees · ${(stats?.totalRebates ?? 0).toFixed(2)} rebates earned.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {!stats?.totalTraders && (
+          <button className={ghost} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
+            await sign("referrer", step, "the referral code registration"); await refresh(); })}>
+            Register referral code
+          </button>
+        )}
+        <button className={ghost} disabled={!!busy || !stats?.totalRebates} onClick={() => send("claim")}>Claim rebates</button>
+      </div>
+    </section>
+  );
+}
+
 function Chat({ token, busy, run, refresh }: Props) {
   const [log, setLog] = useState<{ me: boolean; text: string; token?: string | null }[]>([]);
   const [text, setText] = useState("");
@@ -278,7 +363,12 @@ function Chat({ token, busy, run, refresh }: Props) {
     <section className={card}>
       <h3 className="mb-3 font-semibold">Trade</h3>
       <div className="max-h-80 space-y-2 overflow-y-auto">
-        {!log.length && <p className="text-sm text-dim">Try “long $20 ETH 5x sl 5%”, “close my ETH” or “close everything”.</p>}
+        {!log.length && (
+          <p className="text-sm text-dim">
+            Try “long $20 ETH 5x sl 5%”, “short $50 BTC 3x limit 90000”, “close 50% ETH”, “set sl ETH 2400”,
+            “add $10 margin to ETH”, “cancel orders” or “close everything”.
+          </p>
+        )}
         {log.map((m, i) => (
           <div key={i} className={`whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm ${m.me ? "ml-8 bg-mint/10" : "mr-8 bg-black"}`}>
             {m.text}

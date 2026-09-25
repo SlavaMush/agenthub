@@ -18,6 +18,8 @@ MASTER = os.environ["VERANTA_CONNECT_MASTER_KEY"].encode()
 BUILDER = {"builder_code": os.environ["VERANTA_BUILDER_CODE"],
            "builder_fee_percent": float(os.environ.get("VERANTA_BUILDER_FEE_PERCENT") or 0)} \
     if os.environ.get("VERANTA_BUILDER_CODE") else {}
+TREASURY = os.environ.get("TREASURY_WALLET", "").lower()  # owns the builder + referral codes, collects fees
+REFERRAL_CODE = os.environ.get("REFERRAL_CODE", "agenthub")
 engine = create_engine(os.environ.get("DATABASE_URL", "sqlite:///./bot.db"))
 POLICY = ("max_leverage", "max_collateral", "max_daily_notional", "max_positions", "max_daily_loss")
 
@@ -28,9 +30,7 @@ class User(SQLModel, table=True):
     telegram_id: Optional[str] = Field(default=None, index=True)
     delegate_key: str = ""  # encrypted key of the ACTIVE on-chain delegate
     delegate_expiry: int = 0
-    pending_key: str = ""   # encrypted key awaiting the trader's DelegateReq signature
-    pending_digest: str = ""
-    pending_intent: str = ""
+    referred: bool = False  # linked to our referral code
     paused: bool = False
     max_leverage: float = 5
     max_collateral: float = 100
