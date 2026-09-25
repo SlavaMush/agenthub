@@ -1,5 +1,6 @@
 """Chat -> intent -> quote + policy -> confirm -> execute. Shared by the web API and Telegram."""
 import logging
+import math
 import re
 import secrets
 import time
@@ -122,14 +123,17 @@ async def quote(u: User, it: Intent) -> tuple[str, bool]:
     it.tp, it.sl, it.tp_pct, it.sl_pct = tp or None, sl or None, None, None
     it.stop = bool(it.price) and (it.price > mark) == long
     platform_fee = size * fee_pct / 100
+    balance = float(trade_allow.get("balanceUsdc") or 0)
     used, pnl = day_totals(u.id)
     lev = pair.leverages
     checks = [
         (lev.min_leverage <= it.leverage <= lev.max_leverage, f"{it.pair} allows {lev.min_leverage:g}-{lev.max_leverage:g}x"),
-        (size >= pair.min_lev_pos_usdc, f"size ${size:g} is under the ${pair.min_lev_pos_usdc:g} market minimum (collateral × leverage)"),
+        (size >= pair.min_lev_pos_usdc, f"Veranta's minimum {it.pair} position is ${pair.min_lev_pos_usdc:g} of size (collateral × leverage), "
+                                        f"this is ${size:g}. Try ${math.ceil(pair.min_lev_pos_usdc / min(u.max_leverage, lev.max_leverage)):g} "
+                                        f"at {min(u.max_leverage, lev.max_leverage):g}x (your leverage cap)"),
         (not tp or (tp > price) == long, "take-profit is on the wrong side of entry"),
         (not sl or (sl < price) == long, "stop-loss is on the wrong side of entry"),
-        (float(trade_allow.get("balanceUsdc") or 0) >= it.collateral + platform_fee, "not enough USDC in your wallet"),
+        (balance >= it.collateral + platform_fee, f"your wallet has ${balance:.2f} USDC on Base, this needs ${it.collateral + platform_fee:.2f}"),
         (float(trade_allow.get("allowanceUsdc") or 0) >= it.collateral, f"approve USDC for trading first at {WEB_URL}"),
         (not fee_pct or float(fee_allow.get("allowanceUsdc") or 0) >= platform_fee, f"approve the platform fee allowance at {WEB_URL}"),
         (not u.paused, "trading is paused (send `resume`)"),
@@ -147,7 +151,7 @@ async def quote(u: User, it: Intent) -> tuple[str, bool]:
     lines += [f"TP {tp:,.2f}"] if tp else []
     lines += [f"SL {sl:,.2f}"] if sl else []
     problems = [msg for ok, msg in checks if not ok]
-    return "\n".join(lines + ([f"Blocked: {'; '.join(problems)}"] if problems else [])), not problems
+    return "\n".join(lines + (["Blocked:\n• " + "\n• ".join(problems)] if problems else [])), not problems
 
 
 _pending: dict[str, tuple[float, int, Intent]] = {}
