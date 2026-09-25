@@ -1,8 +1,20 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import { useAccount, useSignTypedData } from "wagmi";
+import { useAccount, useSignTypedData, useConnectorClient } from "wagmi";
 import Link from "next/link";
+
+// A plain ECDSA sig over a 32-byte digest is 65 bytes → "0x" + 130 hex chars.
+// Anything longer is either:
+//   • EIP-1271 wrapped (smart wallet "SignatureWithData" struct), or
+//   • EIP-6492 factory-wrapped (counterfactual deploy).
+// Veranta's setDelegateWithSig expects a raw ECDSA sig, so we EOA-gate here
+// BEFORE letting the user sign something that will revert on-chain.
+const PLAIN_ECDSA_LEN = 132;
+
+function isSmartWalletSignature(sigHex: string): boolean {
+  return sigHex.length > PLAIN_ECDSA_LEN;
+}
 
 const BOT_API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
 
@@ -61,6 +73,16 @@ export function StartInner({ inCard = true, onDone }: { inCard?: boolean; onDone
         primaryType: prep.typedData.primaryType,
         message: prep.typedData.message,
       });
+
+      // Reject smart-wallet signatures (EIP-1271 / EIP-6492 wrapped) — Veranta's
+      // delegate contract only accepts plain ECDSA over the request digest.
+      if (isSmartWalletSignature(signature)) {
+        throw new Error(
+          "This wallet returns smart-wallet signatures (Coinbase Smart Wallet / EIP-1271). " +
+          "Veranta delegate signing needs a plain EOA signature. " +
+          "Reconnect with MetaMask/Rabby, or use Coinbase Wallet in 'EOA only' mode."
+        );
+      }
 
       // 3) Submit; the platform relayer pays gas on-chain.
       setStatus("submitting");
