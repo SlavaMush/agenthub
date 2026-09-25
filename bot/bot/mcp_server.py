@@ -3,7 +3,7 @@
 Auth: the user's AgentHub token as `Authorization: Bearer <token>` (from the site's "Connect an agent"
 card or POST /api/login with {"agent": true}). Every tool runs through the same core as the site and bot.
 """
-from typing import Literal, Optional
+from typing import Optional
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -12,8 +12,8 @@ from . import account, core
 from .api import user_from_token
 
 INSTRUCTIONS = """AgentHub trades Veranta perpetuals on Base for the wallet whose token you hold, inside that user's limits.
-1. Call get_account first. If active is false, call prepare_signature, have the user's wallet sign the returned
-   EIP-712 data (eth_signTypedData_v4, plain EOA only), then submit_signature with it. It is gasless.
+1. Call get_account first. If active is false, call prepare_delegation, have the user's wallet sign its typedData
+   (eth_signTypedData_v4, plain EOA only), then submit_delegation with the ref and signature. It is gasless.
 2. If approvals show an allowance below what they want to trade, call wallet_transactions and have the user's wallet
    send each transaction on Base (chainId 8453).
 3. quote_trade with plain English ("long $20 ETH 5x sl 5%", "close 50% ETH", "set sl ETH 2400", "cancel orders").
@@ -63,15 +63,18 @@ async def set_limits(ctx: Context, max_leverage: Optional[float] = None, max_col
 
 
 @mcp.tool()
-async def prepare_signature(ctx: Context, kind: Literal["delegate"] = "delegate") -> dict:
-    """EIP-712 typed data the user's wallet must sign (eth_signTypedData_v4) to enable trading for 30 days."""
-    return await account.prepare_intent(_user(ctx), kind)
+async def prepare_delegation(ctx: Context) -> dict:
+    """EIP-712 typed data the user's wallet must sign (eth_signTypedData_v4) to enable trading for 30 days, plus a ref."""
+    return await account.prepare_delegation(_user(ctx).wallet)
 
 
 @mcp.tool()
-async def submit_signature(signature: str, ctx: Context, kind: Literal["delegate"] = "delegate") -> dict:
-    """Submit the wallet's delegation signature. AgentHub relays it on-chain gaslessly."""
-    return {"tx": await account.submit_intent(_user(ctx), kind, signature)}
+async def submit_delegation(ref: str, signature: str, ctx: Context) -> dict:
+    """Submit the wallet's signature with the ref from prepare_delegation. AgentHub relays it on-chain gaslessly."""
+    u, tx = await account.submit_delegation(ref, signature)
+    if u.wallet != _user(ctx).wallet:
+        raise ValueError("that request belongs to another wallet")
+    return {"tx": tx}
 
 
 @mcp.tool()

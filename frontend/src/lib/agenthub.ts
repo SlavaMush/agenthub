@@ -63,6 +63,11 @@ export function useSession() {
   const signOut = useCallback(() => setToken(null), [setToken]);
   const [busy, setBusy] = useState("");
   const [err, setErr] = useState("");
+  const delegate = useDelegate();
+  const status = useQuery({  // no session yet: returning wallets sign in, new ones set up (one signature either way)
+    queryKey: ["status", address], enabled: !!address && !token,
+    queryFn: () => api<{ active: boolean }>(`/api/status?wallet=${address}`, null),
+  });
 
   const q = useQuery({
     queryKey: ["me", token], enabled: !!token, refetchInterval: 30_000, retry: false,
@@ -86,7 +91,8 @@ export function useSession() {
     if (tg) history.replaceState(null, "", "/");
     setToken(r.token);
   });
-  return { token, me, busy, err: err || (q.error && !(q.error instanceof ApiError && q.error.status === 401) ? errText(q.error) : ""), setErr, run, refresh, signIn, signOut };
+  const onboard = (policy: Policy) => run("Preparing…", async (step) => setToken((await delegate(null, step, policy)).token));
+  return { token, me, busy, returning: status.data?.active, onboard, err: err || (q.error && !(q.error instanceof ApiError && q.error.status === 401) ? errText(q.error) : ""), setErr, run, refresh, signIn, signOut };
 }
 
 /** Make sure the wallet is on Base: typed data pins chainId 8453 and wallets refuse other chains. */
@@ -96,27 +102,29 @@ function useOnBase() {
   return async (step: Step) => { if (chainId !== base.id) { step("Switch your wallet to Base…"); await switchChainAsync({ chainId: base.id }); } };
 }
 
-/** Gasless on-chain actions: the wallet signs an EIP-712 intent and the server relays it. */
-export function useSignIntent(token: string) {
+/** Sign the gasless delegation. Without a session this is onboarding: the same signature also signs you in. */
+function useDelegate() {
+  const { address } = useAccount();
   const { signTypedDataAsync } = useSignTypedData();
   const onBase = useOnBase();
-  return async (kind: "delegate", step: Step, what: string) => {
+  return async (token: string | null, step: Step, policy?: Policy) => {
     await onBase(step);
     step("Preparing…");
-    const typed = await api(`/api/sign/${kind}/prepare`, token, {});
-    step(`Sign ${what} in your wallet…`);
-    const signature = await signTypedDataAsync(typed);
-    step("Submitting on-chain (gasless)…");
-    await api(`/api/sign/${kind}/submit`, token, { signature });
+    const path = token ? "/api/delegate" : "/api/onboard";
+    const { ref, typedData } = await api(`${path}/prepare`, token, { wallet: address });
+    step("Sign the trading delegation in your wallet…");
+    const signature = await signTypedDataAsync(typedData);
+    step("Enabling on-chain (gasless)…");
+    return api(`${path}/submit`, token, { ref, signature, policy });
   };
 }
 
-/** Enable (or renew) trading: optional limits, then the gasless delegation. */
+/** Renew or re-enable trading while signed in (optional new limits first). */
 export function useEnable({ token, run, refresh }: Session) {
-  const sign = useSignIntent(token);
+  const delegate = useDelegate();
   return (policy?: Policy) => run("Preparing…", async (step) => {
     if (policy) await api("/api/policy", token, policy);
-    await sign("delegate", step, "the trading delegation");
+    await delegate(token, step);
     await refresh();
   });
 }

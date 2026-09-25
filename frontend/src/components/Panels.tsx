@@ -31,7 +31,7 @@ export function Account(s: Session) {
   );
 }
 
-function LimitFields({ value, onChange }: { value: Policy; onChange: (p: Policy) => void }) {
+export function LimitFields({ value, onChange }: { value: Policy; onChange: (p: Policy) => void }) {
   return (
     <div className="grid grid-cols-2 gap-2.5">
       {LIMITS.map(([k, label, unit]) => (

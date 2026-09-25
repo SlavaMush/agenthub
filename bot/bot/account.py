@@ -1,5 +1,6 @@
 """Account operations shared by the web API, the paid agent API and the MCP server."""
 import logging
+import secrets
 import time
 
 from eth_abi import encode as abi_encode
@@ -10,15 +11,16 @@ from veranta_sdk import AsyncVeranta
 from veranta_sdk.types import CallData
 
 from . import core
-from .db import NETWORK, POLICY, REFERRAL_CODE, User, decrypt, encrypt, journal, save
+from .db import NETWORK, POLICY, REFERRAL_CODE, User, decrypt, encrypt, get_user, journal, save
 
 log = logging.getLogger("agenthub.account")
 DELEGATE_TTL = 30 * 86400
 EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase Wallet EOA); smart wallets can't sign these."
-# kind -> (tx-builder intent path, on-chain WithSig entry point). Referral linking is a plain wallet tx instead:
-# Veranta's relayer rejects setTraderReferralCodeByUserWithSig unless the referee's own account relays it.
-INTENTS = {"delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)")}
-_signing: dict[tuple[str, str], tuple] = {}  # (wallet, kind) -> (expires, intent payload, relay key)
+DELEGATE_INTENT = "/v2/intents/delegate-set"
+SET_DELEGATE = keccak(text="setDelegateWithSig(bytes,bytes)")[:4]
+# Referral linking is a plain wallet tx instead: Veranta's relayer rejects setTraderReferralCodeByUserWithSig
+# unless the referee's own account relays it.
+_signing: dict[str, tuple] = {}  # ref -> (expires, wallet, intent payload, delegate key)
 
 
 class UserError(Exception):
@@ -89,31 +91,38 @@ def mark_referred(u: User) -> None:
     save(u)
 
 
-async def prepare_intent(u: User, kind: str) -> dict:
-    """EIP-712 payload for the trader to sign; we relay it gaslessly afterwards."""
-    if kind not in INTENTS:
-        raise UserError(f"{kind} is not available")
-    key = Account.create()  # fresh key: becomes the delegate and relays its own registration
-    params = {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL}
+async def prepare_delegation(wallet: str) -> dict:
+    """EIP-712 DelegateReq for the trader to sign, plus an unguessable `ref` to submit it with.
+    No session needed: the signature itself proves the wallet, so a new user signs exactly once."""
+    wallet = wallet.lower()
+    if not (wallet.startswith("0x") and len(wallet) == 42):
+        raise UserError("bad wallet address")
+    now = time.time()
+    for k in [k for k, v in _signing.items() if v[0] < now]:
+        del _signing[k]
+    key = Account.create()  # becomes the delegate and relays its own registration
     async with AsyncVeranta(network=NETWORK, private_key=key.key.hex()) as c:
-        p = await c.account._txb.intent(INTENTS[kind][0], **params)
-    _signing[(u.wallet, kind)] = (time.time() + 900, p, key.key.hex())
-    return {"domain": p.domain, "types": p.types, "primaryType": p.primary_type, "message": p.message}
+        p = await c.account._txb.intent(DELEGATE_INTENT, trader=wallet, delegate=key.address, expirySeconds=int(now) + DELEGATE_TTL)
+    ref = secrets.token_urlsafe(16)
+    _signing[ref] = (now + 900, wallet, p, key.key.hex())
+    return {"ref": ref, "typedData": {"domain": p.domain, "types": p.types, "primaryType": p.primary_type, "message": p.message}}
 
 
-async def submit_intent(u: User, kind: str, sig: str) -> str:
-    exp, p, key = _signing.pop((u.wallet, kind), (0, None, None))
+async def submit_delegation(ref: str, sig: str) -> tuple[User, str]:
+    """Verify the trader signed it, relay setDelegateWithSig gaslessly, and store the new trading key."""
+    exp, wallet, p, key = _signing.pop(ref, (0, None, None, None))
     if exp < time.time():
-        raise UserError("request expired, prepare it again")
-    if recover(sig, digest=p.digest) != u.wallet:
+        raise UserError("request expired, start again")
+    if recover(sig, digest=p.digest) != wallet:
         raise UserError(EOA_ONLY)
-    data = keccak(text=INTENTS[kind][1])[:4] + abi_encode(["bytes", "bytes"], [to_bytes(hexstr=sig), to_bytes(hexstr=p.encoded_intent)])
-    async with AsyncVeranta(network=NETWORK, private_key=key) as c:  # relayed via the key's EIP-7702 account: gasless
+    data = SET_DELEGATE + abi_encode(["bytes", "bytes"], [to_bytes(hexstr=sig), to_bytes(hexstr=p.encoded_intent)])
+    async with AsyncVeranta(network=NETWORK, private_key=key) as c:  # relayed via the key's EIP-7702 account
         a = c.account
         r = await a._route(CallData.model_validate({
             "to": p.domain["verifyingContract"], "from": a._engine.signer.address, "data": "0x" + data.hex(),
-            "value": "0x0", "chainId": await a._engine.chain_id(), "description": kind}), wait=True)
+            "value": "0x0", "chainId": await a._engine.chain_id(), "description": "setDelegateWithSig"}), wait=True)
+    u = get_user(wallet=wallet) or User(wallet=wallet)
     u.delegate_key, u.delegate_expiry = encrypt(key), int(time.time()) + DELEGATE_TTL - 3600
     save(u)
-    journal(u.id, kind, tx=r.tx_hash)
-    return r.tx_hash
+    journal(u.id, "delegate", tx=r.tx_hash)
+    return u, r.tx_hash

@@ -5,9 +5,39 @@ import { useAppKit } from "@reown/appkit/react";
 import { useAccount } from "wagmi";
 import Console from "@/components/Console";
 import Landing from "@/components/Landing";
-import { Account, Agents, Limits, Portfolio, Setup } from "@/components/Panels";
+import { Account, Agents, LimitFields, Limits, Portfolio, Setup } from "@/components/Panels";
 import { Button, Logo, Pill } from "@/components/ui";
-import { BOT, useSession, type Session } from "@/lib/agenthub";
+import { BOT, useSession, type Policy, type Session } from "@/lib/agenthub";
+
+const DEFAULT_POLICY: Policy = { max_leverage: 5, max_collateral: 100, max_daily_notional: 500, max_positions: 3, max_daily_loss: 50 };
+const EOA_NOTE = "Needs a regular wallet (MetaMask, Rabby, Coinbase Wallet EOA). Smart wallets can't sign Veranta delegations.";
+
+function SignIn({ busy, onSign }: { busy: string; onSign: () => void }) {
+  return (
+    <div className="w-full max-w-sm animate-rise rounded-2xl border border-line bg-card p-6 text-center">
+      <p className="text-2xl font-semibold">Welcome back</p>
+      <p className="mt-2 text-sm text-dim">Your agent is enabled. One free signature signs you in. No transaction, no gas.</p>
+      <Button className="mt-6 w-full" disabled={!!busy} onClick={onSign}>{busy || "Sign in"}</Button>
+    </div>
+  );
+}
+
+function Onboard({ busy, onEnable }: { busy: string; onEnable: (p: Policy) => void }) {
+  const [policy, setPolicy] = useState(DEFAULT_POLICY);
+  return (
+    <div className="w-full max-w-md animate-rise rounded-2xl border border-line bg-card p-6">
+      <p className="text-2xl font-semibold">Set your limits</p>
+      <p className="mt-2 text-sm text-dim">
+        Then sign <b className="text-white">once</b>: a gasless delegation that lets your agent trade for 30 days inside these caps.
+        It can never withdraw or move your USDC, and it signs you in.
+      </p>
+      <div className="mt-5"><LimitFields value={policy} onChange={setPolicy} /></div>
+      <p className="mt-3 text-xs text-mute">Veranta&apos;s minimum position is $100 of size (collateral × leverage), e.g. $20 at 5x.</p>
+      <Button className="mt-5 w-full" disabled={!!busy} onClick={() => onEnable(policy)}>{busy || "Sign & enable agent"}</Button>
+      <p className="mt-4 text-center text-xs text-mute">{EOA_NOTE}</p>
+    </div>
+  );
+}
 
 type Tab = "trade" | "account" | "settings";
 const TABS: [Tab, string][] = [["trade", "Trade"], ["account", "Account"], ["settings", "Settings"]];
@@ -52,13 +82,9 @@ export default function Home() {
       )}
 
       {!inApp ? <Landing /> : !s.token ? (
-        <main className="bg-grid grid flex-1 place-items-center px-4 py-16">
-          <div className="w-full max-w-sm animate-rise rounded-2xl border border-line bg-card p-6 text-center">
-            <p className="text-2xl font-semibold">Sign in</p>
-            <p className="mt-2 text-sm text-dim">One free signature proves you own this wallet. No transaction, no gas.</p>
-            <Button className="mt-6 w-full" disabled={!!s.busy} onClick={s.signIn}>{s.busy || "Sign in with wallet"}</Button>
-            <p className="mt-4 text-xs text-mute">Needs a regular wallet (MetaMask, Rabby, Coinbase Wallet EOA). Smart wallets can&apos;t sign Veranta delegations.</p>
-          </div>
+        <main className="bg-grid grid flex-1 place-items-center px-4 py-12">
+          {s.returning === undefined ? <p className="animate-pulse text-sm text-mute">Checking your wallet…</p>
+            : s.returning ? <SignIn busy={s.busy} onSign={s.signIn} /> : <Onboard busy={s.busy} onEnable={s.onboard} />}
         </main>
       ) : !session ? (
         <main className="grid flex-1 place-items-center text-sm text-mute"><p className="animate-pulse">Loading your account…</p></main>

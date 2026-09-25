@@ -9,6 +9,7 @@ from .db import User, get_user, read_token, save, sign_token
 
 log = logging.getLogger("agenthub.api")
 AGENT_TOKEN_TTL = 30 * 86400
+PUBLIC = {"/api/login", "/api/status", "/api/onboard/prepare", "/api/onboard/submit"}  # the rest needs a session
 routes = web.RouteTableDef()
 
 
@@ -29,7 +30,7 @@ def user_from_token(authorization: str):
 @web.middleware
 async def guard(req: web.Request, handler):
     try:
-        if req.path != "/api/login":
+        if req.path not in PUBLIC:
             if not (u := user_from_token(req.headers.get("Authorization", ""))):
                 return err("session expired, sign in again", 401)
             req["user"] = u
@@ -60,6 +61,28 @@ async def login(req):
         save(u)
     ttl = AGENT_TOKEN_TTL if b.get("agent") else 7 * 86400
     return web.json_response({"token": session_token(u, ttl), "expires": int(time.time()) + ttl, "telegram": bool(tg)})
+
+
+@routes.get("/api/status")
+async def status(req):
+    """Public: does this wallet already have a live trading key? Picks 'Sign in' vs 'Set up' (one signature either way)."""
+    u = get_user(wallet=req.query.get("wallet", "").lower())
+    return web.json_response({"active": bool(u and u.active)})
+
+
+@routes.post("/api/onboard/prepare")
+async def onboard_prepare(req):
+    return web.json_response(await account.prepare_delegation(str((await req.json()).get("wallet", ""))))
+
+
+@routes.post("/api/onboard/submit")
+async def onboard_submit(req):
+    """New users sign once: the verified delegation signature enables trading AND signs them in."""
+    b = await req.json()
+    u, tx = await account.submit_delegation(b.get("ref", ""), b.get("signature", ""))
+    if b.get("policy"):
+        account.set_policy(u, b["policy"])
+    return web.json_response({"tx": tx, "token": session_token(u, 7 * 86400), "expires": int(time.time()) + 7 * 86400})
 
 
 @routes.get("/api/me")
@@ -100,17 +123,19 @@ async def referral_linked(req):
     return web.json_response({"ok": True})
 
 
-@routes.post("/api/sign/{kind}/prepare")
-@routes.post("/api/delegate/prepare")  # path used by site builds before the referral step
-async def sign_prepare(req):
-    return web.json_response(await account.prepare_intent(req["user"], req.match_info.get("kind", "delegate")))
+@routes.post("/api/delegate/prepare")
+async def delegate_prepare(req):
+    """Signed-in users renewing their key (and agents via MCP): same flow, bound to the session's wallet."""
+    return web.json_response(await account.prepare_delegation(req["user"].wallet))
 
 
-@routes.post("/api/sign/{kind}/submit")
 @routes.post("/api/delegate/submit")
-async def sign_submit(req):
-    kind, sig = req.match_info.get("kind", "delegate"), (await req.json()).get("signature", "")
-    return web.json_response({"ok": True, "tx": await account.submit_intent(req["user"], kind, sig)})
+async def delegate_submit(req):
+    b = await req.json()
+    u, tx = await account.submit_delegation(b.get("ref", ""), b.get("signature", ""))
+    if u.wallet != req["user"].wallet:
+        return err("that request belongs to another wallet", 403)
+    return web.json_response({"ok": True, "tx": tx})
 
 
 @routes.post("/api/chat")
