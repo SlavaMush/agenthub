@@ -1,4 +1,5 @@
 """Chat -> intent -> quote + policy -> confirm -> execute. Shared by the web API and Telegram."""
+import asyncio
 import logging
 import math
 import re
@@ -100,11 +101,10 @@ def client(u: Optional[User] = None, signing: bool = False, **extra) -> AsyncVer
 
 
 async def upnl(c, positions) -> list[float]:
-    out = []
-    for p in positions:
-        mark, entry = float(await c.markets.price(p.pair_index)), float(p.open_price)
-        out.append((mark - entry) / entry * float(p.position_size) * (1 if p.buy else -1))
-    return out
+    """Unrealized PnL per position, one price fetch per distinct pair, concurrently."""
+    pairs = list({p.pair_index for p in positions})
+    mark = dict(zip(pairs, await asyncio.gather(*(c.markets.price(i) for i in pairs))))
+    return [(float(mark[p.pair_index]) / float(p.open_price) - 1) * float(p.position_size) * (1 if p.buy else -1) for p in positions]
 
 
 async def quote(u: User, it: Intent) -> tuple[str, bool]:

@@ -1,391 +1,97 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import {
-  useAccount, useConfig, useSignMessage, useSignTypedData, useSwitchChain, useWriteContract,
-} from "wagmi";
-import { waitForTransactionReceipt } from "wagmi/actions";
-import { erc20Abi, parseUnits } from "viem";
-import { base } from "@reown/appkit/networks";
+import { useState, useSyncExternalStore } from "react";
+import { useAppKit } from "@reown/appkit/react";
+import { useAccount } from "wagmi";
+import Console from "@/components/Console";
+import Landing from "@/components/Landing";
+import { Account, Agents, Limits, Portfolio, Setup } from "@/components/Panels";
+import { Button, Logo, Pill } from "@/components/ui";
+import { BOT, useSession, type Session } from "@/lib/agenthub";
 
-const API = process.env.NEXT_PUBLIC_BOT_API || "https://api.agenthub.gg";
-const BOT = "https://t.me/tradr_aibot";
-const LIMITS = [
-  ["max_leverage", "Max leverage (x)"],
-  ["max_collateral", "Collateral per trade ($)"],
-  ["max_daily_notional", "Size per day ($)"],
-  ["max_positions", "Open positions"],
-  ["max_daily_loss", "Daily loss limit ($)"],
-] as const;
-
-type Hex = `0x${string}`;
-type Policy = Record<(typeof LIMITS)[number][0], number>;
-type Position = { pair: string; side: string; collateral: number; leverage: number; entry: number; liq: number; pnl: number };
-type Order = { pair: string; side: string; collateral: number; leverage: number; price: number };
-type Me = {
-  wallet: string; active: boolean; expires: number; paused: boolean; telegram: boolean; referred: boolean;
-  referralCode: string; referralOwner?: boolean; policy: Policy; usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[];
-  positions?: Position[]; orders?: Order[];
-};
-type Run = (label: string, fn: (step: (label: string) => void) => Promise<void>) => Promise<void>;
-
-const storage = {
-  get: (k: string) => { try { return localStorage.getItem(k); } catch { return null; } },
-  set: (k: string, v: string | null) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch {} },
-};
-
-class ApiError extends Error { constructor(msg: string, public status: number) { super(msg); } }
-
-async function api<T = any>(path: string, token: string | null, body?: object): Promise<T> {
-  const r = await fetch(API + path, {
-    method: body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-    body: body && JSON.stringify(body),
-  });
-  const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new ApiError(j.error || `Request failed (${r.status})`, r.status);
-  return j;
-}
-
-const errText = (e: any) => e?.shortMessage || e?.message || String(e);
-const card = "rounded-2xl border border-line bg-card p-5";
-const btn = "w-full rounded-xl bg-mint px-5 py-3 font-semibold text-black transition hover:brightness-110 disabled:opacity-50";
-const ghost = "rounded-lg border border-line px-3 py-2 text-sm text-dim hover:text-white disabled:opacity-50";
+type Tab = "trade" | "account" | "settings";
+const TABS: [Tab, string][] = [["trade", "Trade"], ["account", "Account"], ["settings", "Settings"]];
 
 export default function Home() {
-  const { address, isConnected } = useAccount();
-  const { signMessageAsync } = useSignMessage();
-  const [token, setToken] = useState<string | null>(null);
-  const [me, setMe] = useState<Me | null>(null);
-  const [busy, setBusy] = useState("");
-  const [err, setErr] = useState("");
-  const key = `agenthub:${address?.toLowerCase()}`;
-
-  useEffect(() => { setMe(null); setErr(""); setToken(address ? storage.get(key) : null); }, [address, key]);
-
-  const refresh = useCallback(async () => {
-    if (!token) return;
-    try { setMe(await api<Me>("/api/me", token)); }
-    catch (e) { if (e instanceof ApiError && e.status === 401) { storage.set(key, null); setToken(null); } else setErr(errText(e)); }
-  }, [token, key]);
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const run: Run = async (label, fn) => {
-    setBusy(label); setErr("");
-    try { await fn(setBusy); } catch (e) { setErr(errText(e)); } finally { setBusy(""); }
-  };
-
-  const signIn = () => run("Confirm the sign-in in your wallet…", async () => {
-    const ts = Math.floor(Date.now() / 1000);
-    const signature = await signMessageAsync({ message: `Sign in to AgentHub\nWallet: ${address}\nIssued: ${ts}` });
-    const tg = new URLSearchParams(location.search).get("tg") || undefined;
-    const r = await api("/api/login", null, { wallet: address, ts, signature, tg });
-    if (tg) history.replaceState(null, "", "/");
-    storage.set(key, r.token);
-    setToken(r.token);
-  });
+  const { isConnected } = useAccount();
+  const { open } = useAppKit();
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);  // wallet UI only after hydration
+  const s = useSession();
+  const [picked, setTab] = useState<Tab | null>(null);
+  const session: Session | null = s.me && s.token ? { me: s.me, token: s.token, run: s.run, busy: s.busy, refresh: s.refresh } : null;
+  const inApp = mounted && isConnected;
+  const tab: Tab = picked ?? (s.me && !s.me.active ? "account" : "trade");  // mobile: land on setup first
 
   return (
-    <main className="mx-auto flex min-h-dvh max-w-2xl flex-col px-4 pb-10">
-      <nav className="flex items-center justify-between gap-3 py-4">
-        <a href="/" className="flex items-center gap-2 font-semibold">
-          <span className="h-6 w-6 rounded-md bg-gradient-to-br from-mint to-gain" /> AgentHub
-        </a>
-        <appkit-button balance="hide" />
-      </nav>
-
-      {!isConnected ? <Hero /> : !token ? (
-        <section className={`${card} mt-6 space-y-3`}>
-          <h2 className="text-xl font-semibold">Sign in</h2>
-          <p className="text-sm text-dim">One free signature proves you own this wallet. No transaction, no gas.</p>
-          <button className={btn} disabled={!!busy} onClick={signIn}>{busy || "Sign in with wallet"}</button>
-        </section>
-      ) : !me ? <p className="mt-10 text-center text-sm text-dim">Loading your account…</p>
-        : me.active ? <Dashboard me={me} token={token} run={run} busy={busy} refresh={refresh} />
-        : <Setup me={me} token={token} run={run} busy={busy} refresh={refresh} />}
-      {me?.referralOwner && token && <RegisterReferral me={me} token={token} run={run} busy={busy} refresh={refresh} />}
-      {me && token && <AgentAccess token={token} run={run} busy={busy} signOut={() => { storage.set(key, null); setToken(null); }} />}
-
-      {err && <p className="mt-4 whitespace-pre-line break-words rounded-xl bg-loss/10 p-3 text-sm text-loss">{err}</p>}
-      <footer className="mt-auto pt-10 text-center text-xs text-mute">
-        Self-custody on Base · trades via <a className="underline" href="https://www.veranta.xyz">Veranta</a> ·{" "}
-        <a className="underline" href={BOT}>Telegram bot</a>
-      </footer>
-    </main>
-  );
-}
-
-function Hero() {
-  return (
-    <section className="py-12 text-center sm:py-20">
-      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-mint">Perp trading agent on Base</p>
-      <h1 className="mt-4 text-4xl font-semibold leading-tight sm:text-5xl">Trade in plain English.</h1>
-      <p className="mx-auto mt-5 max-w-md text-dim">
-        “Long $20 ETH 5x with a 5% stop.” The agent quotes it, checks your limits, and executes after you confirm,
-        here or in Telegram. Funds never leave your wallet.
-      </p>
-      <div className="mx-auto mt-8 flex max-w-xs flex-col items-center gap-3">
-        <appkit-button label="Connect wallet" />
-        <a href={BOT} className="text-sm text-mint underline">or open the Telegram bot</a>
-      </div>
-      <ul className="mx-auto mt-12 grid max-w-xl gap-3 text-left text-sm text-dim sm:grid-cols-3">
-        <li className={card}><b className="text-white">Hard limits.</b> Leverage, size, daily volume and loss caps are checked before every order.</li>
-        <li className={card}><b className="text-white">Revocable.</b> A 30-day trading key that can never withdraw or move funds.</li>
-        <li className={card}><b className="text-white">Gasless.</b> One signature to enable. Orders are relayed for you.</li>
-      </ul>
-    </section>
-  );
-}
-
-type Props = { me: Me; token: string; run: Run; busy: string; refresh: () => Promise<void> };
-
-// Gasless on-chain actions: the wallet signs an EIP-712 intent and the server relays it.
-function useSignIntent(token: string) {
-  const { signTypedDataAsync } = useSignTypedData();
-  const { chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  return async (kind: "delegate" | "referral" | "referrer", step: (s: string) => void, what: string) => {
-    // The intent's domain pins Base; MetaMask and others refuse to sign typed data for another chain.
-    if (chainId !== base.id) { step("Switch your wallet to Base…"); await switchChainAsync({ chainId: base.id }); }
-    step("Preparing…");
-    const typed = await api(`/api/sign/${kind}/prepare`, token, {});
-    step(`Sign ${what} in your wallet…`);
-    const signature = await signTypedDataAsync(typed);
-    step("Submitting on-chain (gasless)…");
-    await api(`/api/sign/${kind}/submit`, token, { signature });
-  };
-}
-
-function useDelegate({ token, run, refresh }: Props) {
-  const sign = useSignIntent(token);
-  return (policy?: Policy, referred = true) => run("Preparing…", async (step) => {
-    if (policy) await api("/api/policy", token, policy);
-    await sign("delegate", step, "the trading delegation");
-    if (!referred) await sign("referral", step, "the fee-discount referral link").catch(() => {}); // optional
-    await refresh();
-  });
-}
-
-function Limits({ value, onChange }: { value: Policy; onChange: (p: Policy) => void }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-      {LIMITS.map(([k, label]) => (
-        <label key={k} className="text-xs text-mute">
-          {label}
-          <input type="number" inputMode="decimal" min={1} value={value[k] ?? ""}
-            onChange={(e) => onChange({ ...value, [k]: Number(e.target.value) })}
-            className="mt-1 w-full rounded-lg border border-line bg-black px-3 py-2 text-base text-white outline-none focus:border-mint" />
-        </label>
-      ))}
-    </div>
-  );
-}
-
-function Setup(props: Props) {
-  const [policy, setPolicy] = useState(props.me.policy);
-  const delegate = useDelegate(props);
-  return (
-    <section className={`${card} mt-6 space-y-4`}>
-      <h2 className="text-xl font-semibold">Enable the agent</h2>
-      <p className="text-sm text-dim">
-        Set your limits, then sign the delegation. It lets the agent trade for 30 days and can never move funds.
-        It&apos;s free, no gas.
-        Markets need at least $100 size (collateral × leverage).
-      </p>
-      <Limits value={policy} onChange={setPolicy} />
-      <button className={btn} disabled={!!props.busy} onClick={() => delegate(policy, props.me.referred || !props.me.referralCode)}>
-        {props.busy || "Sign and enable"}
-      </button>
-    </section>
-  );
-}
-
-function Dashboard(props: Props) {
-  const { me, token, run, busy, refresh } = props;
-  const [policy, setPolicy] = useState(me.policy);
-  const delegate = useDelegate(props);
-  const sign = useSignIntent(token);
-  const daysLeft = Math.max(0, Math.floor((me.expires - Date.now() / 1000) / 86400));
-  return (
-    <div className="mt-4 space-y-4">
-      <section className={card}>
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <span className="text-xs uppercase tracking-wider text-mute">Wallet USDC</span>
-          <span className={`rounded-full px-3 py-1 text-xs font-semibold ${me.paused ? "bg-loss/10 text-loss" : "bg-gain/10 text-gain"}`}>
-            {me.paused ? "Paused" : "Active"} · key valid {daysLeft}d
-          </span>
-        </div>
-        <div className="mt-2 text-4xl font-bold tabular-nums">{me.balance === undefined ? "—" : `$${me.balance.toFixed(2)}`}</div>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <button className={ghost} disabled={!!busy} onClick={() => run("Saving…", async () => { await api("/api/policy", token, { paused: !me.paused }); await refresh(); })}>
-            {me.paused ? "Resume trading" : "Pause trading"}
-          </button>
-          <button className={ghost} disabled={!!busy} onClick={refresh}>Refresh</button>
-          {daysLeft < 7 && <button className={ghost} disabled={!!busy} onClick={() => delegate()}>Renew key</button>}
-          {!me.referred && me.referralCode && (
-            <button className={ghost} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
-              await sign("referral", step, "the referral link"); await refresh(); })}>
-              Get fee discount
-            </button>
-          )}
-          {!me.telegram && <a className={ghost} href={BOT}>Link Telegram</a>}
-        </div>
-      </section>
-      <Approve {...props} />
-      <Chat {...props} />
-      <section className={card}>
-        <h3 className="mb-3 font-semibold">Positions</h3>
-        {me.orders?.map((o, i) => (
-          <div key={`o${i}`} className="flex flex-wrap justify-between gap-x-4 border-b border-line py-2 text-sm">
-            <span><b className="text-dim">limit</b> {o.side} {o.pair} {o.leverage}x · ${o.collateral}</span>
-            <span className="tabular-nums text-dim">@ {o.price.toLocaleString()}</span>
+    <div className="flex min-h-dvh flex-col">
+      <header className="sticky top-0 z-30 border-b border-line bg-bg/80 backdrop-blur-xl">
+        <nav className="mx-auto flex h-14 max-w-7xl items-center justify-between gap-3 px-4 sm:px-6">
+          <div className="flex items-center gap-6">
+            <Logo />
+            <div className="hidden items-center gap-5 text-sm text-dim md:flex">
+              <a href={BOT} className="hover:text-white">Telegram</a>
+              <a href="https://github.com/BankrBot/skills/pull/742" className="hover:text-white">Bankr skill</a>
+              <a href="https://www.veranta.xyz" className="hover:text-white">Veranta</a>
+            </div>
           </div>
-        ))}
-        {!me.positions?.length ? <p className="text-sm text-dim">No open positions.</p> : me.positions.map((p, i) => (
-          <div key={i} className="flex flex-wrap justify-between gap-x-4 border-t border-line py-2 text-sm first:border-0">
-            <span><b className={p.side === "long" ? "text-gain" : "text-loss"}>{p.side}</b> {p.pair} {p.leverage}x · ${p.collateral}</span>
-            <span className="tabular-nums text-dim">
-              @ {p.entry.toLocaleString()} · liq {p.liq.toLocaleString()} · <span className={p.pnl < 0 ? "text-loss" : "text-gain"}>{p.pnl >= 0 ? "+" : ""}{p.pnl}</span>
-            </span>
+          <div className="flex items-center gap-2">
+            <span className="hidden sm:inline-flex"><Pill tone="mint">Base</Pill></span>
+            {!mounted ? <span className="h-9 w-24 rounded-xl bg-card" /> : isConnected ? <appkit-button balance="hide" size="sm" />
+              : <Button onClick={() => open()} className="py-2">Connect</Button>}
           </div>
-        ))}
-      </section>
-      <section className={`${card} space-y-4`}>
-        <h3 className="font-semibold">Limits</h3>
-        <Limits value={policy} onChange={setPolicy} />
-        <button className={btn} disabled={!!busy} onClick={() => run("Saving…", async () => { await api("/api/policy", token, policy); await refresh(); })}>
-          Save limits
-        </button>
-      </section>
-    </div>
-  );
-}
+        </nav>
+      </header>
 
-function Approve({ me, run, busy, refresh }: Props) {
-  const config = useConfig();
-  const { chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { writeContractAsync } = useWriteContract();
-  const [amount, setAmount] = useState(String(Math.max(100, Math.ceil(me.balance || 0))));
-  const needed = (me.approvals || []).filter((a) => a.allowance < Math.min(Number(amount) || 1, me.balance || 1));
-  if (!me.usdc || !needed.length) return null;
-  const approve = () => run("Switching to Base…", async (step) => {
-    if (chainId !== base.id) await switchChainAsync({ chainId: base.id });
-    for (const [i, a] of needed.entries()) {
-      step(`Approve ${i + 1} of ${needed.length} in your wallet…`);
-      const hash = await writeContractAsync({ address: me.usdc!, abi: erc20Abi, functionName: "approve",
-        args: [a.spender, parseUnits(amount, 6)], chainId: base.id });
-      await waitForTransactionReceipt(config, { hash, chainId: base.id });
-    }
-    await refresh();
-  });
-  return (
-    <section className={`${card} space-y-3 border-mint/40`}>
-      <h3 className="font-semibold">Allow trading with your USDC</h3>
-      <p className="text-sm text-dim">
-        One-time approval{needed.length > 1 ? "s" : ""} to Veranta&apos;s trading contract
-        {needed.length > 1 ? " and builder-fee registry" : ""}. Your wallet pays a little gas on Base. Choose a cap:
-      </p>
-      <div className="flex gap-2">
-        <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
-          className="w-28 rounded-lg border border-line bg-black px-3 text-base outline-none focus:border-mint" />
-        <button className={btn} disabled={!!busy || !(Number(amount) > 0)} onClick={approve}>{busy || `Approve $${amount}`}</button>
-      </div>
-    </section>
-  );
-}
-
-// Lets the user hand a 30-day token to an MCP client or an x402-paying agent (e.g. a Bankr skill).
-function AgentAccess({ token, run, busy, signOut }: { token: string; run: Run; busy: string; signOut: () => void }) {
-  const [agent, setAgent] = useState<{ token: string; expires: number } | null>(null);
-  const mcp = agent && JSON.stringify({ mcpServers: { agenthub: { type: "http", url: `${API}/mcp`, headers: { Authorization: `Bearer ${agent.token}` } } } }, null, 2);
-  return (
-    <section className={`${card} mt-4 space-y-3 text-sm`}>
-      <h3 className="font-semibold">Connect an agent</h3>
-      <p className="text-dim">
-        Let an AI agent (Claude, Cursor, Bankr…) trade for this wallet inside your limits. It gets a 30-day token; it can quote,
-        trade and manage positions but can never move funds. Agents calling the HTTP API pay $0.01 per executed trade via x402.
-      </p>
-      {!agent ? (
-        <button className={ghost} disabled={!!busy} onClick={() => run("Creating token…", async () => setAgent(await api("/api/agent/token", token, {})))}>
-          Create agent token
-        </button>
-      ) : (
-        <>
-          <p className="text-loss">Treat this like a password: anyone holding it can trade for you until it expires or you revoke it.</p>
-          <label className="block text-xs text-mute">MCP config (Claude Code, Cursor, any MCP client)
-            <textarea readOnly rows={9} value={mcp!} onFocus={(e) => e.target.select()}
-              className="mt-1 w-full rounded-lg border border-line bg-black p-2 font-mono text-xs text-white" />
-          </label>
-          <button className={ghost} onClick={() => navigator.clipboard?.writeText(mcp!)}>Copy MCP config</button>
-          <p className="text-xs text-mute">HTTP API: {API}/api/* with header <code>Authorization: Bearer &lt;token&gt;</code>; paid execution at <code>POST /api/agent/execute</code>.</p>
-        </>
+      {s.err && (
+        <div className="mx-auto mt-3 w-full max-w-7xl px-4 sm:px-6">
+          <div className="flex items-start justify-between gap-3 rounded-xl border border-loss/30 bg-loss/10 px-4 py-3 text-sm text-loss">
+            <p className="whitespace-pre-line wrap-break-word">{s.err}</p>
+            <button onClick={() => s.setErr("")} className="shrink-0 text-loss/70 hover:text-loss">✕</button>
+          </div>
+        </div>
       )}
-      <button className="block text-xs text-loss underline disabled:opacity-50" disabled={!!busy}
-        onClick={() => run("Revoking…", async () => { await api("/api/agent/revoke", token, {}); signOut(); })}>
-        Revoke all agent tokens (signs you out everywhere)
-      </button>
-    </section>
-  );
-}
 
-// Shown only to REFERRAL_OWNER until the code is registered.
-function RegisterReferral({ token, run, busy, refresh }: Props) {
-  const sign = useSignIntent(token);
-  return (
-    <section className={`${card} mt-4 space-y-3 border-mint/40`}>
-      <h3 className="font-semibold">Register the referral code</h3>
-      <p className="text-sm text-dim">One free signature makes this wallet the owner of the app&apos;s referral code, so it earns rebates on every referred trader&apos;s fees.</p>
-      <button className={btn} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
-        await sign("referrer", step, "the referral code registration"); await refresh(); })}>
-        {busy || "Register referral code"}
-      </button>
-    </section>
-  );
-}
-
-function Chat({ token, busy, run, refresh }: Props) {
-  const [log, setLog] = useState<{ me: boolean; text: string; token?: string | null }[]>([]);
-  const [text, setText] = useState("");
-  const say = (entry: (typeof log)[number]) => setLog((l) => [...l.slice(-30), entry]);
-  const send = () => text.trim() && run("Thinking…", async () => {
-    say({ me: true, text });
-    setText("");
-    const r = await api("/api/chat", token, { text });
-    say({ me: false, text: r.reply, token: r.token });
-  });
-  const confirm = (t: string) => run("Executing…", async () => {
-    setLog((l) => l.map((m) => (m.token === t ? { ...m, token: null } : m)));
-    say({ me: false, text: (await api("/api/confirm", token, { token: t })).reply });
-    await refresh();
-  });
-  return (
-    <section className={card}>
-      <h3 className="mb-3 font-semibold">Trade</h3>
-      <div className="max-h-80 space-y-2 overflow-y-auto">
-        {!log.length && (
-          <p className="text-sm text-dim">
-            Try “long $20 ETH 5x sl 5%”, “short $50 BTC 3x limit 90000”, “close 50% ETH”, “set sl ETH 2400”,
-            “add $10 margin to ETH”, “cancel orders” or “close everything”.
-          </p>
-        )}
-        {log.map((m, i) => (
-          <div key={i} className={`whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-sm ${m.me ? "ml-8 bg-mint/10" : "mr-8 bg-black"}`}>
-            {m.text}
-            {m.token && (
-              <div className="mt-2 flex gap-2">
-                <button className={ghost} disabled={!!busy} onClick={() => confirm(m.token!)}>Execute</button>
-                <button className={ghost} onClick={() => setLog((l) => l.map((x) => (x === m ? { ...x, token: null } : x)))}>Cancel</button>
-              </div>
-            )}
+      {!inApp ? <Landing /> : !s.token ? (
+        <main className="bg-grid grid flex-1 place-items-center px-4 py-16">
+          <div className="w-full max-w-sm animate-rise rounded-2xl border border-line bg-card p-6 text-center">
+            <p className="text-2xl font-semibold">Sign in</p>
+            <p className="mt-2 text-sm text-dim">One free signature proves you own this wallet. No transaction, no gas.</p>
+            <Button className="mt-6 w-full" disabled={!!s.busy} onClick={s.signIn}>{s.busy || "Sign in with wallet"}</Button>
+            <p className="mt-4 text-xs text-mute">Needs a regular wallet (MetaMask, Rabby, Coinbase Wallet EOA). Smart wallets can&apos;t sign Veranta delegations.</p>
           </div>
-        ))}
-      </div>
-      <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); send(); }}>
-        <input value={text} onChange={(e) => setText(e.target.value)} placeholder="long $20 ETH 5x"
-          className="min-w-0 flex-1 rounded-lg border border-line bg-black px-3 py-2 text-base outline-none focus:border-mint" />
-        <button className="rounded-lg bg-mint px-4 font-semibold text-black disabled:opacity-50" disabled={!!busy || !text.trim()}>Send</button>
-      </form>
-    </section>
+        </main>
+      ) : !session ? (
+        <main className="grid flex-1 place-items-center text-sm text-mute"><p className="animate-pulse">Loading your account…</p></main>
+      ) : (
+        <main className="mx-auto grid w-full max-w-7xl flex-1 grid-cols-1 gap-4 px-3 pb-24 pt-4 sm:px-6 lg:grid-cols-[minmax(0,1fr)_380px] lg:pb-6">
+          <div className={`${tab === "trade" ? "block" : "hidden"} h-[calc(100dvh-10.5rem)] lg:block lg:h-[calc(100dvh-5.5rem)]`}>
+            <Console {...session} />
+          </div>
+          <aside className={`${tab === "trade" ? "hidden lg:block" : ""} scrollbar-thin space-y-4 lg:h-[calc(100dvh-5.5rem)] lg:overflow-y-auto lg:pr-1`}>
+            <div className={`${tab === "account" ? "" : "hidden lg:block"} space-y-4`}>
+              <Setup {...session} /><Account {...session} /><Portfolio {...session} />
+            </div>
+            <div className={`${tab === "settings" ? "" : "hidden lg:block"} space-y-4`}>
+              <Limits {...session} /><Agents {...session} signOut={s.signOut} />
+            </div>
+          </aside>
+        </main>
+      )}
+
+      {session && (
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-3 border-t border-line bg-bg/90 pb-[env(safe-area-inset-bottom)] backdrop-blur-xl lg:hidden">
+          {TABS.map(([t, label]) => (
+            <button key={t} onClick={() => setTab(t)} className={`py-3 text-sm font-medium ${tab === t ? "text-mint" : "text-mute"}`}>{label}</button>
+          ))}
+        </nav>
+      )}
+
+      {!session && (
+        <footer className="border-t border-line py-8 text-center text-xs text-mute">
+          Self-custody on Base · executes on <a className="underline hover:text-white" href="https://www.veranta.xyz">Veranta</a> ·{" "}
+          <a className="underline hover:text-white" href={BOT}>Telegram</a>
+        </footer>
+      )}
+    </div>
   );
 }

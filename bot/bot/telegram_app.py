@@ -1,6 +1,6 @@
 """Telegram front-end. Presentation only: trading goes through core, onboarding through the web app."""
 from telegram import InlineKeyboardButton as Btn, InlineKeyboardMarkup as Inline, ReplyKeyboardMarkup, Update
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
+from telegram.ext import Application, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 
 from . import core
 from .db import WEB_URL, get_user, sign_token

@@ -10,17 +10,14 @@ from veranta_sdk import AsyncVeranta
 from veranta_sdk.types import CallData
 
 from . import core
-from .db import NETWORK, POLICY, REFERRAL_CODE, REFERRAL_OWNER, User, decrypt, encrypt, journal, referral_live, save
+from .db import NETWORK, POLICY, REFERRAL_CODE, User, decrypt, encrypt, journal, save
 
 log = logging.getLogger("agenthub.account")
 DELEGATE_TTL = 30 * 86400
 EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase Wallet EOA); smart wallets can't sign these."
-# kind -> (tx-builder intent path, on-chain WithSig entry point)
-INTENTS = {
-    "delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)"),
-    "referral": ("/v2/intents/referral-set-code", "setTraderReferralCodeByUserWithSig(bytes,bytes)"),
-    "referrer": ("/v2/intents/referral-register-code", "registerCodeWithSig(bytes,bytes)"),
-}
+# kind -> (tx-builder intent path, on-chain WithSig entry point). Referral linking is a plain wallet tx instead:
+# Veranta's relayer rejects setTraderReferralCodeByUserWithSig unless the referee's own account relays it.
+INTENTS = {"delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)")}
 _signing: dict[tuple[str, str], tuple] = {}  # (wallet, kind) -> (expires, intent payload, relay key)
 
 
@@ -43,8 +40,7 @@ def recover(sig: str, *, text: str = "", digest: str = "") -> str:
 
 async def summary(u: User) -> dict:
     out = {"wallet": u.wallet, "active": u.active, "expires": u.delegate_expiry, "paused": u.paused,
-           "telegram": bool(u.telegram_id), "referred": u.referred, "referralCode": REFERRAL_CODE if referral_live() else "",
-           "referralOwner": bool(REFERRAL_OWNER) and u.wallet == REFERRAL_OWNER and not referral_live(),
+           "telegram": bool(u.telegram_id), "referred": u.referred, "referralCode": REFERRAL_CODE,
            "policy": {k: getattr(u, k) for k in POLICY}}
     try:
         async with core.client(u) as c:
@@ -73,24 +69,32 @@ def set_policy(u: User, b: dict) -> None:
     save(u)
 
 
-async def approval_txs(u: User, amount_usdc: float) -> list[dict]:
-    """USDC approve() calls the trader's own wallet must send: collateral to Veranta, plus our builder fee."""
+async def wallet_txs(u: User, amount_usdc: float) -> list[dict]:
+    """Transactions only the trader's own wallet can send: USDC approvals (collateral + our builder fee), plus the
+    optional referral link for Veranta's fee discount."""
     s = await summary(u)
     raw = int(amount_usdc * 1e6)
-    return [{"to": s["usdc"], "value": "0x0", "chainId": 8453, "spender": a["spender"],
-             "data": "0x095ea7b3" + abi_encode(["address", "uint256"], [a["spender"], raw]).hex()}
-            for a in s.get("approvals", []) if a["allowance"] < amount_usdc]
+    txs = [{"purpose": "approve", "to": s["usdc"], "value": "0x0", "chainId": 8453, "spender": a["spender"],
+            "data": "0x095ea7b3" + abi_encode(["address", "uint256"], [a["spender"], raw]).hex()}
+           for a in s.get("approvals", []) if a["allowance"] < amount_usdc]
+    if REFERRAL_CODE and not u.referred:
+        async with core.client() as c:
+            cd = await c.account._txb.calldata("/v2/referral/set-code", caller=u.wallet, code=REFERRAL_CODE)
+        txs.append({"purpose": "referral", "to": cd.to, "value": cd.value, "chainId": 8453, "data": cd.data})
+    return txs
+
+
+def mark_referred(u: User) -> None:
+    u.referred = True
+    save(u)
 
 
 async def prepare_intent(u: User, kind: str) -> dict:
     """EIP-712 payload for the trader to sign; we relay it gaslessly afterwards."""
-    owner_ok = u.wallet == REFERRAL_OWNER and not referral_live()
-    if kind not in INTENTS or (kind == "referral" and not referral_live()) or (kind == "referrer" and not owner_ok):
+    if kind not in INTENTS:
         raise UserError(f"{kind} is not available")
-    key = Account.create()  # fresh key: becomes the delegate, or just relays the gasless call
-    params = {"delegate": {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL},
-              "referral": {"referee": u.wallet, "code": REFERRAL_CODE},
-              "referrer": {"referrer": u.wallet, "code": REFERRAL_CODE}}[kind]
+    key = Account.create()  # fresh key: becomes the delegate and relays its own registration
+    params = {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL}
     async with AsyncVeranta(network=NETWORK, private_key=key.key.hex()) as c:
         p = await c.account._txb.intent(INTENTS[kind][0], **params)
     _signing[(u.wallet, kind)] = (time.time() + 900, p, key.key.hex())
@@ -109,9 +113,7 @@ async def submit_intent(u: User, kind: str, sig: str) -> str:
         r = await a._route(CallData.model_validate({
             "to": p.domain["verifyingContract"], "from": a._engine.signer.address, "data": "0x" + data.hex(),
             "value": "0x0", "chainId": await a._engine.chain_id(), "description": kind}), wait=True)
-    if kind == "delegate":
-        u.delegate_key, u.delegate_expiry = encrypt(key), int(time.time()) + DELEGATE_TTL - 3600
-    u.referred = u.referred or kind == "referral"
+    u.delegate_key, u.delegate_expiry = encrypt(key), int(time.time()) + DELEGATE_TTL - 3600
     save(u)
     journal(u.id, kind, tx=r.tx_hash)
     return r.tx_hash

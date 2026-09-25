@@ -18,8 +18,7 @@ MASTER = os.environ["VERANTA_CONNECT_MASTER_KEY"].encode()
 BUILDER = {"builder_code": os.environ["VERANTA_BUILDER_CODE"],
            "builder_fee_percent": float(os.environ.get("VERANTA_BUILDER_FEE_PERCENT") or 0)} \
     if os.environ.get("VERANTA_BUILDER_CODE") else {}
-REFERRAL_CODE = os.environ.get("REFERRAL_CODE", "agenthub")
-REFERRAL_OWNER = os.environ.get("REFERRAL_OWNER", "").lower()  # EOA that registers the code and earns rebates
+REFERRAL_CODE = os.environ.get("REFERRAL_CODE", "agenthub")  # registered on-chain; "" turns the referral step off
 engine = create_engine(os.environ.get("DATABASE_URL", "sqlite:///./bot.db"))
 POLICY = ("max_leverage", "max_collateral", "max_daily_notional", "max_positions", "max_daily_loss")
 
@@ -77,11 +76,6 @@ def day_totals(uid: int) -> tuple[float, float]:
     return sum(r.notional for r in rows), sum(r.pnl for r in rows)
 
 
-def referral_live() -> bool:
-    """Users are only asked to link the code once the owner has registered it (journaled on success)."""
-    with Session(engine) as s:
-        return s.exec(select(Journal).where(Journal.kind == "referrer")).first() is not None
-
 
 def _key(purpose: bytes) -> bytes:
     return hmac.new(MASTER, purpose, hashlib.sha256).digest()
@@ -114,7 +108,3 @@ def read_token(token: str, prefix: str) -> Optional[str]:
 
 
 SQLModel.metadata.create_all(engine)
-with engine.begin() as _c:  # additive column migrations for existing SQLite files
-    _cols = {r[1] for r in _c.exec_driver_sql("PRAGMA table_info(user)")}
-    if "token_version" not in _cols:
-        _c.exec_driver_sql("ALTER TABLE user ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")

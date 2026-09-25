@@ -25,7 +25,7 @@ createAppKit({
     "fd20dc426fb37566d803205b19bbc1d4096b248ac04548e3cfb6b3a38bd033aa", // Coinbase Wallet
   ],
   themeMode: "dark",
-  themeVariables: { "--w3m-accent": "#00daa2", "--w3m-border-radius-master": "8px", "--w3m-font-family": "inherit" },
+  themeVariables: { "--apkt-accent": "#00daa2", "--apkt-color-mix": "#07080a", "--apkt-color-mix-strength": 20, "--apkt-border-radius-master": "3px", "--apkt-font-family": "var(--font-grotesk)" },  // AppKit 1.8 reads --apkt-*
 });
 
 const qc = new QueryClient();

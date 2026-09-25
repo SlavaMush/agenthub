@@ -90,7 +90,14 @@ async def policy(req):
 
 @routes.get("/api/approvals")
 async def approvals(req):
-    return web.json_response({"transactions": await account.approval_txs(req["user"], float(req.query.get("amount", 1000)))})
+    return web.json_response({"transactions": await account.wallet_txs(req["user"], float(req.query.get("amount", 1000)))})
+
+
+@routes.post("/api/referral/linked")
+async def referral_linked(req):
+    """The wallet sent the referral set-code tx itself; just stop offering it."""
+    account.mark_referred(req["user"])
+    return web.json_response({"ok": True})
 
 
 @routes.post("/api/sign/{kind}/prepare")
