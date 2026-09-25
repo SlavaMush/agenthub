@@ -37,7 +37,8 @@ export default function Console({ me, token, run, busy, refresh }: Session) {
   const [log, setLog] = useState<Msg[]>([]);
   const [text, setText] = useState("");
   const end = useRef<HTMLDivElement>(null);
-  useEffect(() => end.current?.scrollIntoView({ behavior: "smooth", block: "end" }), [log, busy]);
+  // Block body on purpose: scrollIntoView returns a Promise in current browsers, and React would call it as a cleanup.
+  useEffect(() => { end.current?.scrollIntoView({ behavior: "smooth", block: "end" }); }, [log, busy]);
 
   const say = (m: Msg) => setLog((l) => [...l.slice(-40), m]);
   const close = (t: string) => setLog((l) => l.map((m) => (m.token === t ? { ...m, token: null, done: true } : m)));
