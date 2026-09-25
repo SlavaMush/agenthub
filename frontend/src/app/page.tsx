@@ -24,7 +24,7 @@ type Position = { pair: string; side: string; collateral: number; leverage: numb
 type Order = { pair: string; side: string; collateral: number; leverage: number; price: number };
 type Me = {
   wallet: string; active: boolean; expires: number; paused: boolean; telegram: boolean; referred: boolean;
-  referralCode: string; policy: Policy; usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[];
+  referralCode: string; referralOwner?: boolean; policy: Policy; usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[];
   positions?: Position[]; orders?: Order[];
 };
 type Run = (label: string, fn: (step: (label: string) => void) => Promise<void>) => Promise<void>;
@@ -103,6 +103,7 @@ export default function Home() {
       ) : !me ? <p className="mt-10 text-center text-sm text-dim">Loading your account…</p>
         : me.active ? <Dashboard me={me} token={token} run={run} busy={busy} refresh={refresh} />
         : <Setup me={me} token={token} run={run} busy={busy} refresh={refresh} />}
+      {me?.referralOwner && token && <RegisterReferral me={me} token={token} run={run} busy={busy} refresh={refresh} />}
 
       {err && <p className="mt-4 whitespace-pre-line break-words rounded-xl bg-loss/10 p-3 text-sm text-loss">{err}</p>}
       <footer className="mt-auto pt-10 text-center text-xs text-mute">
@@ -142,7 +143,7 @@ function useSignIntent(token: string) {
   const { signTypedDataAsync } = useSignTypedData();
   const { chainId } = useAccount();
   const { switchChainAsync } = useSwitchChain();
-  return async (kind: "delegate" | "referral", step: (s: string) => void, what: string) => {
+  return async (kind: "delegate" | "referral" | "referrer", step: (s: string) => void, what: string) => {
     // The intent's domain pins Base; MetaMask and others refuse to sign typed data for another chain.
     if (chainId !== base.id) { step("Switch your wallet to Base…"); await switchChainAsync({ chainId: base.id }); }
     step("Preparing…");
@@ -289,6 +290,21 @@ function Approve({ me, run, busy, refresh }: Props) {
           className="w-28 rounded-lg border border-line bg-black px-3 text-base outline-none focus:border-mint" />
         <button className={btn} disabled={!!busy || !(Number(amount) > 0)} onClick={approve}>{busy || `Approve $${amount}`}</button>
       </div>
+    </section>
+  );
+}
+
+// Shown only to REFERRAL_OWNER until the code is registered.
+function RegisterReferral({ token, run, busy, refresh }: Props) {
+  const sign = useSignIntent(token);
+  return (
+    <section className={`${card} mt-4 space-y-3 border-mint/40`}>
+      <h3 className="font-semibold">Register the referral code</h3>
+      <p className="text-sm text-dim">One free signature makes this wallet the owner of the app&apos;s referral code, so it earns rebates on every referred trader&apos;s fees.</p>
+      <button className={btn} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
+        await sign("referrer", step, "the referral code registration"); await refresh(); })}>
+        {busy || "Register referral code"}
+      </button>
     </section>
   );
 }
