@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "reown-docs": {
+      "type": "http",
+      "url": "https://docs.reown.com/mcp"
+    }
+  }
+}
