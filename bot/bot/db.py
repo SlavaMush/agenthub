@@ -19,6 +19,7 @@ BUILDER = {"builder_code": os.environ["VERANTA_BUILDER_CODE"],
            "builder_fee_percent": float(os.environ.get("VERANTA_BUILDER_FEE_PERCENT") or 0)} \
     if os.environ.get("VERANTA_BUILDER_CODE") else {}
 REFERRAL_CODE = os.environ.get("REFERRAL_CODE", "agenthub")
+TREASURY = os.environ.get("TREASURY_WALLET", "").lower()  # receives builder fees; owns the referral code
 engine = create_engine(os.environ.get("DATABASE_URL", "sqlite:///./bot.db"))
 POLICY = ("max_leverage", "max_collateral", "max_daily_notional", "max_positions", "max_daily_loss")
 

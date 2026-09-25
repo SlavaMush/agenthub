@@ -11,7 +11,7 @@ from veranta_sdk import AsyncVeranta
 from veranta_sdk.types import CallData
 
 from . import core
-from .db import NETWORK, POLICY, REFERRAL_CODE, User, decrypt, encrypt, get_user, journal, read_token, save, sign_token
+from .db import BUILDER, NETWORK, POLICY, REFERRAL_CODE, TREASURY, User, decrypt, encrypt, get_user, journal, read_token, save, sign_token
 
 log = logging.getLogger("agenthub.api")
 DELEGATE_TTL = 30 * 86400
@@ -20,6 +20,7 @@ EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase
 INTENTS = {
     "delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)"),
     "referral": ("/v2/intents/referral-set-code", "setTraderReferralCodeByUserWithSig(bytes,bytes)"),
+    "referrer": ("/v2/intents/referral-register-code", "registerCodeWithSig(bytes,bytes)"),  # treasury only
 }
 _signing: dict[tuple[str, str], tuple] = {}  # (wallet, kind) -> (expires, intent payload, relay key)
 routes = web.RouteTableDef()
@@ -86,6 +87,9 @@ async def me(req):
             if u.active:  # trust the chain: the user may have revoked the key at delegate.veranta.xyz
                 st = await c.account.delegation_status(Account.from_key(decrypt(u.delegate_key)).address)
                 out["active"], out["expires"] = bool(st.get("canSignIntents")), int(st.get("expiry") or 0)
+            if u.wallet == TREASURY:
+                out["owner"] = {"builder": await c.account.builder_code(BUILDER["builder_code"]) if BUILDER else None,
+                                "referrer": (await c.info.referral_stats(u.wallet)).get("data", {}).get("asReferrer", {})}
         out |= {"usdc": a["usdc"], "balance": float(allow[0].get("balanceUsdc") or 0),
                 "approvals": [{"spender": s, "allowance": float(x.get("allowanceUsdc") or 0)} for s, x in zip(spenders, allow)],
                 **await core.portfolio(u)}
@@ -112,11 +116,12 @@ async def policy(req):
 @routes.post("/api/delegate/prepare")  # path used by site builds before the referral step
 async def sign_prepare(req):
     u, kind = req["user"], req.match_info.get("kind", "delegate")
-    if kind not in INTENTS:
-        return err("unknown action", 404)
+    if kind not in INTENTS or (kind == "referrer" and u.wallet != TREASURY):
+        return err("not allowed", 403)
     key = Account.create()  # fresh key: becomes the delegate, or just relays the gasless call
     params = {"delegate": {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL},
-              "referral": {"referee": u.wallet, "code": REFERRAL_CODE}}[kind]
+              "referral": {"referee": u.wallet, "code": REFERRAL_CODE},
+              "referrer": {"referrer": u.wallet, "code": REFERRAL_CODE}}[kind]
     async with AsyncVeranta(network=NETWORK, private_key=key.key.hex()) as c:
         p = await c.account._txb.intent(INTENTS[kind][0], **params)
     _signing[(u.wallet, kind)] = (time.time() + 900, p, key.key.hex())
