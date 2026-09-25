@@ -1,4 +1,4 @@
-"""Web API (localhost, behind Caddy): wallet sign-in, gasless signed intents, policy, chat, owner fee setup."""
+"""Web API (localhost, behind Caddy): wallet sign-in, gasless signed intents, policy, chat."""
 import logging
 import time
 
@@ -11,16 +11,15 @@ from veranta_sdk import AsyncVeranta
 from veranta_sdk.types import CallData
 
 from . import core
-from .db import BUILDER, NETWORK, POLICY, REFERRAL_CODE, TREASURY, User, encrypt, get_user, journal, read_token, save, sign_token
+from .db import NETWORK, POLICY, REFERRAL_CODE, User, decrypt, encrypt, get_user, journal, read_token, save, sign_token
 
 log = logging.getLogger("agenthub.api")
 DELEGATE_TTL = 30 * 86400
 EOA_ONLY = "Veranta needs a plain wallet key (MetaMask, Rabby, Rainbow, Coinbase Wallet EOA); smart wallets can't sign these."
-# kind -> (tx-builder intent path, on-chain WithSig entry point, who may request it)
+# kind -> (tx-builder intent path, on-chain WithSig entry point)
 INTENTS = {
-    "delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)", "any"),
-    "referral": ("/v2/intents/referral-set-code", "setTraderReferralCodeByUserWithSig(bytes,bytes)", "any"),
-    "referrer": ("/v2/intents/referral-register-code", "registerCodeWithSig(bytes,bytes)", "owner"),
+    "delegate": ("/v2/intents/delegate-set", "setDelegateWithSig(bytes,bytes)"),
+    "referral": ("/v2/intents/referral-set-code", "setTraderReferralCodeByUserWithSig(bytes,bytes)"),
 }
 _signing: dict[tuple[str, str], tuple] = {}  # (wallet, kind) -> (expires, intent payload, relay key)
 routes = web.RouteTableDef()
@@ -82,10 +81,9 @@ async def me(req):
             a = await c.account._engine.addresses()
             spenders = [a["tradingStorage"]] + ([a["builderCode"]] if await core.fees() else [])
             allow = [await c.account.allowance(s) for s in spenders]
-            if u.wallet == TREASURY:
-                out["owner"] = {"feePercent": BUILDER.get("builder_fee_percent", 0),
-                                "builder": await c.account.builder_code(BUILDER["builder_code"]) if BUILDER else None,
-                                "referral": await c.info.referral_stats(u.wallet)}
+            if u.active:  # trust the chain: the user may have revoked the key at delegate.veranta.xyz
+                st = await c.account.delegation_status(Account.from_key(decrypt(u.delegate_key)).address)
+                out["active"], out["expires"] = bool(st.get("canSignIntents")), int(st.get("expiry") or 0)
         out |= {"usdc": a["usdc"], "balance": float(allow[0].get("balanceUsdc") or 0),
                 "approvals": [{"spender": s, "allowance": float(x.get("allowanceUsdc") or 0)} for s, x in zip(spenders, allow)],
                 **await core.portfolio(u)}
@@ -111,12 +109,11 @@ async def policy(req):
 @routes.post("/api/sign/{kind}/prepare")
 async def sign_prepare(req):
     u, kind = req["user"], req.match_info["kind"]
-    if kind not in INTENTS or (INTENTS[kind][2] == "owner" and u.wallet != TREASURY):
-        return err("not allowed", 403)
+    if kind not in INTENTS:
+        return err("unknown action", 404)
     key = Account.create()  # fresh key: becomes the delegate, or just relays the gasless call
     params = {"delegate": {"trader": u.wallet, "delegate": key.address, "expirySeconds": int(time.time()) + DELEGATE_TTL},
-              "referral": {"referee": u.wallet, "code": REFERRAL_CODE},
-              "referrer": {"referrer": u.wallet, "code": REFERRAL_CODE}}[kind]
+              "referral": {"referee": u.wallet, "code": REFERRAL_CODE}}[kind]
     async with AsyncVeranta(network=NETWORK, private_key=key.key.hex()) as c:
         p = await c.account._txb.intent(INTENTS[kind][0], **params)
     _signing[(u.wallet, kind)] = (time.time() + 900, p, key.key.hex())
@@ -144,25 +141,6 @@ async def sign_submit(req):
     save(u)
     journal(u.id, kind, tx=r.tx_hash)
     return web.json_response({"ok": True, "tx": r.tx_hash})
-
-
-@routes.post("/api/owner/{action}")
-async def owner_tx(req):
-    """Unsigned tx for the treasury wallet to send itself (msg.sender-scoped actions)."""
-    u, action = req["user"], req.match_info["action"]
-    if u.wallet != TREASURY or action not in ("builder", "claim") or (action == "builder" and not BUILDER):
-        return err("not allowed", 403)
-    async with core.client() as c:
-        if action == "claim":
-            cd = await c.account._txb.calldata("/v2/referral/claim-rebate", caller=u.wallet)
-        else:
-            registered = (await c.account.builder_code(BUILDER["builder_code"]))["registered"]
-            fee = BUILDER["builder_fee_percent"]
-            cd = await c.account._txb.calldata(f"/v2/misc/builder-code/{'modify' if registered else 'register'}",
-                                                caller=u.wallet, code=BUILDER["builder_code"], feeCollector=u.wallet,
-                                                maxOpenFeePercent=fee, maxCloseFeePercent=fee, maxPnlCloseFeePercent=fee)
-    core._fees["checked"] = 0  # re-check registration on the next trade
-    return web.json_response({"to": cd.to, "data": cd.data, "value": cd.value})
 
 
 @routes.post("/api/chat")

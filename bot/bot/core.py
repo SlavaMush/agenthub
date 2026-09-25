@@ -26,6 +26,7 @@ class Intent:
     collateral: float = 0  # margin: amount
     leverage: float = 1
     price: Optional[float] = None  # limit entry
+    stop: bool = False  # entry beyond the mark in the trade's direction -> stop-limit
     pct: float = 100  # share of each position to close
     tp: Optional[float] = None
     sl: Optional[float] = None
@@ -119,6 +120,7 @@ async def quote(u: User, it: Intent) -> tuple[str, bool]:
     tp = it.tp or (it.tp_pct and price * (1 + (it.tp_pct if long else -it.tp_pct) / 100))
     sl = it.sl or (it.sl_pct and price * (1 - (it.sl_pct if long else -it.sl_pct) / 100))
     it.tp, it.sl, it.tp_pct, it.sl_pct = tp or None, sl or None, None, None
+    it.stop = bool(it.price) and (it.price > mark) == long
     platform_fee = size * fee_pct / 100
     used, pnl = day_totals(u.id)
     lev = pair.leverages
@@ -138,7 +140,8 @@ async def quote(u: User, it: Intent) -> tuple[str, bool]:
         (pnl + open_pnl > -u.max_daily_loss, f"daily loss limit ${u.max_daily_loss:g} reached"),
     ]
     liq = compute.estimate_liquidation_price(open_price=price, collateral=it.collateral, leverage=it.leverage, is_long=long)
-    lines = [f"{it.side.upper()} {it.pair} {it.leverage:g}x {'LIMIT @ ' + format(price, ',.2f') if it.price else 'market'}"
+    kind = ("STOP" if it.stop else "LIMIT") + f" @ {price:,.2f}" if it.price else "market"
+    lines = [f"{it.side.upper()} {it.pair} {it.leverage:g}x {kind}"
              f" — ${it.collateral:g} collateral, ${size:g} size",
              f"Entry ~{price:,.2f} · liq ~{float(liq):,.2f} · fees ~${size * pair.open_fee_p / 100 + platform_fee:.2f}"]
     lines += [f"TP {tp:,.2f}"] if tp else []
@@ -191,7 +194,7 @@ async def confirm(u: User, token: str) -> str:
         async with client(u, signing=True, **await fees()) as c:
             if it.action == "open":
                 args, kw = (it.pair, it.side, it.collateral, it.leverage), {"take_profit": it.tp, "stop_loss": it.sl}
-                r = await (c.trade.limit_open(*args, it.price, **kw) if it.price else c.trade.market_open(*args, **kw))
+                r = await (c.trade.limit_open(*args, it.price, stop=it.stop, **kw) if it.price else c.trade.market_open(*args, **kw))
                 journal(u.id, "open", notional=it.collateral * it.leverage, pair=it.pair, side=it.side, tx=r.tx_hash)
                 return f"{'Limit order placed' if it.price else 'Filled'}: {it.side} {it.pair} ${it.collateral:g} @ {it.leverage:g}x\ntx {r.tx_hash}"
             idx = None if it.pair == "*" else (await c.markets.pair(it.pair)).index
@@ -208,11 +211,16 @@ async def confirm(u: User, token: str) -> str:
                 p = ps[-1]
                 await c.trade.update_margin(p.pair_index, p.index, "deposit" if it.side == "add" else "withdraw", it.collateral)
                 return f"Margin updated on {it.pair}."
+            no_fee = {}  # never let an exhausted fee allowance trap a user in a position
+            if it.action == "close" and (rate := (await fees()).get("builder_fee_percent")):
+                owed = sum(float(p.position_size) for p in ps) * it.pct / 100 * rate / 100
+                if float((await c.account.builder_fee_allowance()).get("allowanceUsdc") or 0) < owed:
+                    no_fee = {"builder_fee_percent": 0}
             for p, pnl in zip(ps, await upnl(c, ps)):
                 if it.action == "tpsl":
                     await c.trade.update_tp_sl(p.pair_index, p.index, take_profit=it.tp, stop_loss=it.sl)
                 else:
-                    r = await c.trade.market_close(p.pair_index, p.index, float(p.collateral) * it.pct / 100)
+                    r = await c.trade.market_close(p.pair_index, p.index, float(p.collateral) * it.pct / 100, **no_fee)
                     journal(u.id, "close", pnl=pnl * it.pct / 100, pair=p.pair_index, tx=r.tx_hash)
             return f"{'Updated' if it.action == 'tpsl' else 'Closed'} {len(ps)} position(s)."
     except Exception as e:
@@ -229,6 +237,6 @@ async def portfolio(u: User) -> dict:
                            "leverage": float(p.leverage), "entry": float(p.open_price), "liq": float(p.liquidation_price),
                            "tp": float(p.tp), "sl": float(p.sl), "pnl": round(x, 2)}
                           for p, x in zip(data.positions, await upnl(c, data.positions))],
-            "orders": [{"pair": f"#{o.pair_index}", "side": o.side, "collateral": float(o.collateral),
+            "orders": [{"pair": (await c.markets.pair(o.pair_index)).from_symbol, "side": o.side, "collateral": float(o.collateral),
                         "leverage": float(o.leverage), "price": float(o.price)} for o in data.limit_orders],
         }

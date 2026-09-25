@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import {
-  useAccount, useConfig, useSendTransaction, useSignMessage, useSignTypedData, useSwitchChain, useWriteContract,
+  useAccount, useConfig, useSignMessage, useSignTypedData, useSwitchChain, useWriteContract,
 } from "wagmi";
 import { waitForTransactionReceipt } from "wagmi/actions";
 import { erc20Abi, parseUnits } from "viem";
@@ -22,15 +22,10 @@ type Hex = `0x${string}`;
 type Policy = Record<(typeof LIMITS)[number][0], number>;
 type Position = { pair: string; side: string; collateral: number; leverage: number; entry: number; liq: number; pnl: number };
 type Order = { pair: string; side: string; collateral: number; leverage: number; price: number };
-type Owner = {
-  feePercent: number;
-  builder: { registered: boolean; feeCollector: string | null; maxOpenFeePercent: number; maxCloseFeePercent: number } | null;
-  referral: { data?: { asReferrer?: { totalFees: number; totalRebates: number; totalTraders: number } } };
-};
 type Me = {
   wallet: string; active: boolean; expires: number; paused: boolean; telegram: boolean; referred: boolean;
   referralCode: string; policy: Policy; usdc?: Hex; balance?: number; approvals?: { spender: Hex; allowance: number }[];
-  positions?: Position[]; orders?: Order[]; owner?: Owner;
+  positions?: Position[]; orders?: Order[];
 };
 type Run = (label: string, fn: (step: (label: string) => void) => Promise<void>) => Promise<void>;
 
@@ -108,7 +103,6 @@ export default function Home() {
       ) : !me ? <p className="mt-10 text-center text-sm text-dim">Loading your account…</p>
         : me.active ? <Dashboard me={me} token={token} run={run} busy={busy} refresh={refresh} />
         : <Setup me={me} token={token} run={run} busy={busy} refresh={refresh} />}
-      {me?.owner && token && <OwnerPanel me={me} owner={me.owner} token={token} run={run} busy={busy} refresh={refresh} />}
 
       {err && <p className="mt-4 whitespace-pre-line break-words rounded-xl bg-loss/10 p-3 text-sm text-loss">{err}</p>}
       <footer className="mt-auto pt-10 text-center text-xs text-mute">
@@ -146,7 +140,11 @@ type Props = { me: Me; token: string; run: Run; busy: string; refresh: () => Pro
 // Gasless on-chain actions: the wallet signs an EIP-712 intent and the server relays it.
 function useSignIntent(token: string) {
   const { signTypedDataAsync } = useSignTypedData();
-  return async (kind: "delegate" | "referral" | "referrer", step: (s: string) => void, what: string) => {
+  const { chainId } = useAccount();
+  const { switchChainAsync } = useSwitchChain();
+  return async (kind: "delegate" | "referral", step: (s: string) => void, what: string) => {
+    // The intent's domain pins Base; MetaMask and others refuse to sign typed data for another chain.
+    if (chainId !== base.id) { step("Switch your wallet to Base…"); await switchChainAsync({ chainId: base.id }); }
     step("Preparing…");
     const typed = await api(`/api/sign/${kind}/prepare`, token, {});
     step(`Sign ${what} in your wallet…`);
@@ -290,55 +288,6 @@ function Approve({ me, run, busy, refresh }: Props) {
         <input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal"
           className="w-28 rounded-lg border border-line bg-black px-3 text-base outline-none focus:border-mint" />
         <button className={btn} disabled={!!busy || !(Number(amount) > 0)} onClick={approve}>{busy || `Approve $${amount}`}</button>
-      </div>
-    </section>
-  );
-}
-
-function OwnerPanel({ me, owner, token, run, busy, refresh }: Props & { owner: Owner }) {
-  const config = useConfig();
-  const { chainId } = useAccount();
-  const { switchChainAsync } = useSwitchChain();
-  const { sendTransactionAsync } = useSendTransaction();
-  const sign = useSignIntent(token);
-  const b = owner.builder;
-  const stats = owner.referral?.data?.asReferrer;
-  const send = (action: "builder" | "claim") => run("Switching to Base…", async (step) => {
-    if (chainId !== base.id) await switchChainAsync({ chainId: base.id });
-    const tx = await api<{ to: Hex; data: Hex; value: string }>(`/api/owner/${action}`, token, {});
-    step("Confirm in your wallet (small Base gas fee)…");
-    const hash = await sendTransactionAsync({ to: tx.to, data: tx.data, value: BigInt(tx.value || 0), chainId: base.id });
-    step("Waiting for confirmation…");
-    await waitForTransactionReceipt(config, { hash, chainId: base.id });
-    await refresh();
-  });
-  const feeOk = b?.registered && b.feeCollector?.toLowerCase() === me.wallet && b.maxOpenFeePercent >= owner.feePercent;
-  return (
-    <section className={`${card} mt-4 space-y-3 border-mint/40`}>
-      <h3 className="font-semibold">Owner: fees &amp; referrals</h3>
-      <p className="text-sm text-dim">
-        Builder fee <b className="text-white">{owner.feePercent}%</b> of size on every market open, increase and close.{" "}
-        {feeOk ? <span className="text-gain">Live: fees are paid to this wallet.</span>
-          : b?.registered ? <span className="text-loss">Registered, but the collector or caps don&apos;t match. Update to fix.</span>
-          : <span className="text-loss">Not registered yet, so no fees are being charged.</span>}
-      </p>
-      {!feeOk && (
-        <button className={btn} disabled={!!busy} onClick={() => send("builder")}>
-          {busy || (b?.registered ? "Update fee settings" : "Register builder code (this wallet collects fees)")}
-        </button>
-      )}
-      <p className="text-sm text-dim">
-        Referral code <b className="text-white">{me.referralCode}</b>: {stats?.totalTraders ?? 0} traders · $
-        {(stats?.totalFees ?? 0).toFixed(2)} fees · ${(stats?.totalRebates ?? 0).toFixed(2)} rebates earned.
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {!stats?.totalTraders && (
-          <button className={ghost} disabled={!!busy} onClick={() => run("Preparing…", async (step) => {
-            await sign("referrer", step, "the referral code registration"); await refresh(); })}>
-            Register referral code
-          </button>
-        )}
-        <button className={ghost} disabled={!!busy || !stats?.totalRebates} onClick={() => send("claim")}>Claim rebates</button>
       </div>
     </section>
   );
