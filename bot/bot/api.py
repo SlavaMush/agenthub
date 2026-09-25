@@ -47,6 +47,8 @@ async def guard(req: web.Request, handler):
                 return err("session expired, sign in again", 401)
             req["user"] = get_user(wallet=wallet) or save(User(wallet=wallet))
         return await handler(req)
+    except web.HTTPException:
+        raise  # 404/405 etc. keep their status
     except Exception as e:
         log.exception("%s failed", req.path)
         return err(f"{type(e).__name__}: {str(e)[:200]}", 500)
@@ -107,8 +109,9 @@ async def policy(req):
 
 
 @routes.post("/api/sign/{kind}/prepare")
+@routes.post("/api/delegate/prepare")  # path used by site builds before the referral step
 async def sign_prepare(req):
-    u, kind = req["user"], req.match_info["kind"]
+    u, kind = req["user"], req.match_info.get("kind", "delegate")
     if kind not in INTENTS:
         return err("unknown action", 404)
     key = Account.create()  # fresh key: becomes the delegate, or just relays the gasless call
@@ -121,8 +124,9 @@ async def sign_prepare(req):
 
 
 @routes.post("/api/sign/{kind}/submit")
+@routes.post("/api/delegate/submit")
 async def sign_submit(req):
-    u, kind = req["user"], req.match_info["kind"]
+    u, kind = req["user"], req.match_info.get("kind", "delegate")
     exp, p, key = _signing.pop((u.wallet, kind), (0, None, None))
     sig = (await req.json()).get("signature", "")
     if exp < time.time():
